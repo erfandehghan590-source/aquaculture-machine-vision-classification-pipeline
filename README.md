@@ -15,6 +15,9 @@ The following models are included:
 - ProtoNet-ResNet50
 - ProtoNet-ResNet18
 - ProtoNet-ConvNeXt-Tiny
+- EfficientNetV2-medium
+- DenseNet 121
+- Yolo classifier
 
 ## Features
 - Fish image classification
@@ -54,6 +57,10 @@ The following models are included:
     ├──base-model-resnet50.py
 ├──swintiny
     ├──base-model-swintiny.py
+├──densenet
+    ├──base-model-densenet.py
+├──efficientnet
+    ├──base-model-efficientnet.py
 └──dataset
     ├──SalmonScan
     └──SalmonScan_Split
