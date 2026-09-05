@@ -32,13 +32,17 @@ The following models are included:
 ## Project Structure
 ```text
 ├──LICENSE
-├──MVconfig.yaml
+├──.gitignore
 ├──README.md
+├──MVconfig.yaml
+├──model_comparison_config.yaml
+├──data_split_revised.py
+├──data_split.py
 ├──common_utils.py
 ├──compare_models_script.py
-├──model_comparison_config.yaml
 ├──model_comparison_utils.py
 ├──proto_specified_utils.py
+├──run_all_models.py
 ├──ViTB16
     ├──base-model-VITB16.py
 ├──convnexttiny
@@ -57,10 +61,12 @@ The following models are included:
     ├──base-model-resnet50.py
 ├──swintiny
     ├──base-model-swintiny.py
-├──densenet
+├──densenet121
     ├──base-model-densenet.py
-├──efficientnet
+├──efficientnetv2m
     ├──base-model-efficientnet.py
+├──YOLOv8
+    ├──base-model-YOLOv8.py
 └──dataset
     ├──SalmonScan
     └──SalmonScan_Split
