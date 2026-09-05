@@ -17,7 +17,7 @@ The following models are included:
 - ProtoNet-ConvNeXt-Tiny
 - EfficientNetV2-medium
 - DenseNet 121
-- Yolo classifier
+- YOLOv8n classifier
 
 ## Features
 - Fish image classification
@@ -34,6 +34,7 @@ The following models are included:
 ├──LICENSE
 ├──.gitignore
 ├──README.md
+├──requirements.txt
 ├──MVconfig.yaml
 ├──model_comparison_config.yaml
 ├──data_split_revised.py
