@@ -1,15 +1,11 @@
 import os
-
 import numpy as np
 import cv2
 from PIL import Image
-
 import torch
 import torch.nn as nn
-
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
-
 
 # =====================================================================
 # توابع اصلی ProtoNet
@@ -593,6 +589,7 @@ def generate_gradcam_proto(
 
 
 def save_gradcams_for_predicted_infected_proto(
+    mode,
     model,
     prototypes,
     test_dataset,
@@ -672,189 +669,192 @@ def save_gradcams_for_predicted_infected_proto(
         تعداد فایل‌های ذخیره‌شده.
     """
     os.makedirs(output_dir, exist_ok=True)
-
-    if clear_previous:
-        removable_exts = (
-            ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp",
-            ".txt", ".npy"
-        )
-
-        for file_name in os.listdir(output_dir):
-            file_path = os.path.join(output_dir, file_name)
-
-            if os.path.isfile(file_path) and file_name.lower().endswith(removable_exts):
-                os.remove(file_path)
-
-    model.eval()
-    prototypes = prototypes.to(device)
-
-    saved_count = 0
-
-    if not hasattr(test_dataset, "indices"):
-        raise AttributeError(
-            "test_dataset must be a Subset and must have an .indices attribute."
-        )
-
-    test_indices = test_dataset.indices
-
-    print(
-        "Saving predicted-infected ProtoNet Grad-CAMs to:",
-        os.path.abspath(output_dir)
-    )
-
-    for i, original_idx in enumerate(test_indices):
-        image_path, true_label = full_dataset.samples[original_idx]
-
-        result = generate_gradcam_proto(
-            model=model,
-            prototypes=prototypes,
-            image_path=image_path,
-            target_class_idx=infected_class_idx,
-            target_layers=target_layers,
-            cam_transform=cam_transform,
-            device=device,
-            img_size=img_size,
-            reshape_transform=reshape_transform
-        )
-
-        pred_idx = result["pred_idx"]
-        pred_conf = result["pred_conf"]
-
-        # فقط نمونه‌هایی که مدل آن‌ها را infected پیش‌بینی کرده ذخیره می‌شوند.
-        if pred_idx != infected_class_idx:
-            continue
-
-        true_name = class_names[true_label]
-        pred_name = class_names[pred_idx]
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
-
-        case_type = "TP" if true_label == infected_class_idx else "FP"
-
-        common_name = (
-            f"{output_prefix}"
-            "_"
-            f"{base_name}"
-            f"_case-{case_type}"
-        )
-
-        save_path_img = os.path.join(
-            output_dir,
-            f"{common_name}.png"
-        )
-
-        save_path_heatmap = os.path.join(
-            output_dir,
-            f"{common_name}_heatmap.npy"
-        )
-
-        grayscale_cam = result["grayscale_cam"]
-
-        # ذخیره heatmap با فرمت npy برای حفظ دقت عددی
-        np.save(save_path_heatmap, grayscale_cam)
-
-        original_rgb = (
-            result["original_image"] * 255
-        ).clip(0, 255).astype(np.uint8)
-
-        heatmap_rgb = result["visualization"]
-
-        if original_rgb.shape[:2] != heatmap_rgb.shape[:2]:
-            heatmap_rgb = cv2.resize(
-                heatmap_rgb,
-                (original_rgb.shape[1], original_rgb.shape[0])
+    if mode == True:
+        if clear_previous:
+            removable_exts = (
+                ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp",
+                ".txt", ".npy"
             )
 
-        combined_rgb = np.concatenate(
-            [original_rgb, heatmap_rgb],
-            axis=1
+            for file_name in os.listdir(output_dir):
+                file_path = os.path.join(output_dir, file_name)
+
+                if os.path.isfile(file_path) and file_name.lower().endswith(removable_exts):
+                    os.remove(file_path)
+
+        model.eval()
+        prototypes = prototypes.to(device)
+
+        saved_count = 0
+
+        if not hasattr(test_dataset, "indices"):
+            raise AttributeError(
+                "test_dataset must be a Subset and must have an .indices attribute."
+            )
+
+        test_indices = test_dataset.indices
+
+        print(
+            "Saving predicted-infected ProtoNet Grad-CAMs to:",
+            os.path.abspath(output_dir)
         )
+        
+        for i, original_idx in enumerate(test_indices):
+            image_path, true_label = full_dataset.samples[original_idx]
 
-        info_bar_height = 140
-        _, w, _ = combined_rgb.shape
+            result = generate_gradcam_proto(
+                model=model,
+                prototypes=prototypes,
+                image_path=image_path,
+                target_class_idx=infected_class_idx,
+                target_layers=target_layers,
+                cam_transform=cam_transform,
+                device=device,
+                img_size=img_size,
+                reshape_transform=reshape_transform
+            )
 
-        info_bar = np.ones(
-            (info_bar_height, w, 3),
-            dtype=np.uint8
-        ) * 255
+            pred_idx = result["pred_idx"]
+            pred_conf = result["pred_conf"]
 
-        text1 = f"True: {true_name}    Pred: {pred_name}"
-        text2 = f"Case: {case_type}"
-        text3 = f"File: {base_name}"
-        text4 = f"Conf: {pred_conf:.3f}"
+            # فقط نمونه‌هایی که مدل آن‌ها را infected پیش‌بینی کرده ذخیره می‌شوند.
+            if pred_idx != infected_class_idx:
+                continue
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
+            true_name = class_names[true_label]
+            pred_name = class_names[pred_idx]
+            base_name = os.path.splitext(os.path.basename(image_path))[0]
 
-        cv2.putText(
-            info_bar,
-            text1,
-            (15, 30),
-            font,
-            0.65,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA
-        )
+            case_type = "TP" if true_label == infected_class_idx else "FP"
 
-        cv2.putText(
-            info_bar,
-            text2,
-            (15, 60),
-            font,
-            0.65,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA
-        )
+            common_name = (
+                f"{output_prefix}"
+                "_"
+                f"{base_name}"
+                f"_case-{case_type}"
+            )
 
-        cv2.putText(
-            info_bar,
-            text3,
-            (15, 90),
-            font,
-            0.55,
-            (0, 0, 0),
-            1,
-            cv2.LINE_AA
-        )
+            save_path_img = os.path.join(
+                output_dir,
+                f"{common_name}.png"
+            )
 
-        cv2.putText(
-            info_bar,
-            text4,
-            (15, 120),
-            font,
-            0.55,
-            (0, 0, 0),
-            1,
-            cv2.LINE_AA
-        )
+            save_path_heatmap = os.path.join(
+                output_dir,
+                f"{common_name}_heatmap.npy"
+            )
 
-        final_rgb = np.concatenate(
-            [combined_rgb, info_bar],
-            axis=0
-        )
+            grayscale_cam = result["grayscale_cam"]
 
-        final_bgr = cv2.cvtColor(
-            final_rgb,
-            cv2.COLOR_RGB2BGR
-        )
+            # ذخیره heatmap با فرمت npy برای حفظ دقت عددی
+            np.save(save_path_heatmap, grayscale_cam)
 
-        success = cv2.imwrite(
-            save_path_img,
-            final_bgr
-        )
+            original_rgb = (
+                result["original_image"] * 255
+            ).clip(0, 255).astype(np.uint8)
 
-        if success:
-            saved_count += 1
-            print(f"[{saved_count}] Saved: {save_path_img}")
-            print(f"    Heatmap: {save_path_heatmap}")
-        else:
-            print(f"Failed to save image for: {common_name}")
+            heatmap_rgb = result["visualization"]
 
-    print(f"\nTotal predicted-infected samples saved: {saved_count}")
-    print(f"Output folder: {os.path.abspath(output_dir)}")
+            if original_rgb.shape[:2] != heatmap_rgb.shape[:2]:
+                heatmap_rgb = cv2.resize(
+                    heatmap_rgb,
+                    (original_rgb.shape[1], original_rgb.shape[0])
+                )
 
-    return saved_count
+            combined_rgb = np.concatenate(
+                [original_rgb, heatmap_rgb],
+                axis=1
+            )
 
+            info_bar_height = 140
+            _, w, _ = combined_rgb.shape
+
+            info_bar = np.ones(
+                (info_bar_height, w, 3),
+                dtype=np.uint8
+            ) * 255
+
+            text1 = f"True: {true_name}    Pred: {pred_name}"
+            text2 = f"Case: {case_type}"
+            text3 = f"File: {base_name}"
+            text4 = f"Conf: {pred_conf:.3f}"
+
+            font = cv2.FONT_HERSHEY_SIMPLEX
+
+            cv2.putText(
+                info_bar,
+                text1,
+                (15, 30),
+                font,
+                0.65,
+                (0, 0, 0),
+                2,
+                cv2.LINE_AA
+            )
+
+            cv2.putText(
+                info_bar,
+                text2,
+                (15, 60),
+                font,
+                0.65,
+                (0, 0, 0),
+                2,
+                cv2.LINE_AA
+            )
+
+            cv2.putText(
+                info_bar,
+                text3,
+                (15, 90),
+                font,
+                0.55,
+                (0, 0, 0),
+                1,
+                cv2.LINE_AA
+            )
+
+            cv2.putText(
+                info_bar,
+                text4,
+                (15, 120),
+                font,
+                0.55,
+                (0, 0, 0),
+                1,
+                cv2.LINE_AA
+            )
+
+            final_rgb = np.concatenate(
+                [combined_rgb, info_bar],
+                axis=0
+            )
+
+            final_bgr = cv2.cvtColor(
+                final_rgb,
+                cv2.COLOR_RGB2BGR
+            )
+
+            success = cv2.imwrite(
+                save_path_img,
+                final_bgr
+            )
+
+            if success:
+                saved_count += 1
+                print(f"[{saved_count}] Saved: {save_path_img}")
+                print(f"    Heatmap: {save_path_heatmap}")
+            else:
+                print(f"Failed to save image for: {common_name}")
+
+        print(f"\nTotal predicted-infected samples saved: {saved_count}")
+        print(f"Output folder: {os.path.abspath(output_dir)}")
+        return saved_count
+    else:
+        print(f"XAI_ENABLE = {mode}. So there is no heatmap to generate or save." )
+        
+
+   
 
 # =====================================================================
 # reshape_transformهای آماده برای بعضی backboneها

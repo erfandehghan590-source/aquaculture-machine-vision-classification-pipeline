@@ -1,26 +1,12 @@
-"""
-common_utils.py
----------------
-توابع مشترک قابل‌ایمپورت برای تمام نوت‌بوک‌های مدل پایه (ResNet, ViT, Swin, ConvNeXt, MobileNet, ProtoNet).
-
-تغییرات نسبت به کدهای قبلی:
-- ذخیره heatmap به صورت .npy (به‌جای .txt)
-- توابع مستقل از متغیرهای سراسری نوت‌بوک
-- پشتیبانی از معماری‌های مختلف برای Grad-CAM
-"""
-
 from __future__ import annotations
-
 import copy
 import json
 import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence, Union, List
 import matplotlib.pyplot as plt
-
-
 import cv2
 import numpy as np
 import psutil
@@ -33,7 +19,7 @@ from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
-
+from sklearn.metrics import confusion_matrix, f1_score
 
 # ============================================================
 # 1. Seed و Config
@@ -297,7 +283,7 @@ def evaluate(
 # ============================================================
 # 6. لاگ آموزش
 # ============================================================
-def plot_learning_curves(train_losses, val_losses, train_accs, val_accs, MODEL_NAME):
+def plot_learning_curves(train_losses, val_losses, train_accs, val_accs, MODEL_NAME, LC_PATH):
     plt.figure(figsize=(12, 5))
 
     plt.subplot(1, 2, 1)
@@ -319,7 +305,7 @@ def plot_learning_curves(train_losses, val_losses, train_accs, val_accs, MODEL_N
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig(LC_PATH, dpi=300, bbox_inches="tight")
 
 def collect_hyperparameters(
     seed: int,
@@ -391,6 +377,123 @@ def log_training_run(
 
     print(f"Training log appended to: {log_path.resolve()}")
 
+def log_test_metrics(
+    log_path: Union[str, Path],
+    test_loss: float,
+    test_acc: float,
+    model_name: str,
+    model_tag: str,
+    data_subset: str,
+    test_size: Optional[int] = None,
+    y_true: Optional[Sequence[Any]] = None,
+    y_pred: Optional[Sequence[Any]] = None,
+    class_names: Optional[List[str]] = None,
+    extra_info: Optional[dict] = None,
+) -> None:
+    """
+    Append final test-set metrics (overall and per-class) to an existing training log (.jsonl).
+
+    Parameters
+    ----------
+    log_path : str or Path
+        Path to the .jsonl training log file.
+    test_loss : float
+        Loss on the test set.
+    test_acc : float
+        Accuracy on the test set.
+    model_name : str
+        Human-readable model name (e.g. "MobileNetV3-Large").
+    model_tag : str
+        Short tag used in filenames (e.g. "mobilenet_v3_large").
+    data_subset : str
+        Dataset subset identifier (e.g. "Augmented").
+    test_size : int, optional
+        Number of samples in the test set.
+    y_true : Sequence, optional
+        Ground truth class labels.
+    y_pred : Sequence, optional
+        Predicted class labels.
+    class_names : list of str, optional
+        List of class label names corresponding to indices.
+    extra_info : dict, optional
+        Any additional key-value pairs to store in the record.
+    """
+    log_path = Path(log_path)
+
+    record = {
+        "event": "final_test",
+        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "model": model_name,
+        "model_tag": model_tag,
+        "data_subset": data_subset,
+        "test_loss": float(test_loss),
+        "test_acc": float(test_acc),
+    }
+
+    if test_size is not None:
+        record["test_size"] = int(test_size)
+
+    # =================================================================
+    # Per-Class Metrics Computation (Sensitivity, Specificity, F1)
+    # =================================================================
+    per_class_metrics = {}
+    if y_true is not None and y_pred is not None:
+        y_true_arr = np.asarray(y_true)
+        y_pred_arr = np.asarray(y_pred)
+
+        if class_names is None:
+            unique_labels = sorted(list(set(y_true_arr) | set(y_pred_arr)))
+            names = [f"Class_{lbl}" for lbl in unique_labels]
+            labels_indices = unique_labels
+        else:
+            names = class_names
+            labels_indices = list(range(len(class_names)))
+
+        cm = confusion_matrix(y_true_arr, y_pred_arr, labels=labels_indices)
+        f1_list = f1_score(y_true_arr, y_pred_arr, labels=labels_indices, average=None, zero_division=0)
+
+        for i, cls_name in enumerate(names):
+            tp = int(cm[i, i])
+            fn = int(cm[i, :].sum() - tp)
+            fp = int(cm[:, i].sum() - tp)
+            tn = int(cm.sum() - (tp + fp + fn))
+
+            sensitivity = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+            specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+            f1 = float(f1_list[i])
+
+            per_class_metrics[cls_name] = {
+                "sensitivity": round(sensitivity, 4),
+                "specificity": round(specificity, 4),
+                "f1_score": round(f1, 4),
+                "support": int(tp + fn),
+            }
+
+        record["per_class_metrics"] = per_class_metrics
+
+    if extra_info is not None:
+        record.update(extra_info)
+
+    # Ensure parent directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    mode = "a" if log_path.exists() else "w"
+    with open(log_path, mode, encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    action = "appended to" if mode == "a" else "written to new"
+    print(f"[OK] Test metrics {action} log → {log_path.resolve()}")
+    print(f"     test_loss = {test_loss:.4f} | test_acc = {test_acc:.4f}")
+
+    if per_class_metrics:
+        print("\n" + "=" * 65)
+        print(f"       PER-CLASS METRICS: {model_name}")
+        print("=" * 65)
+        print(f"{'Class':<20} | {'Sensitivity':<12} | {'Specificity':<12} | {'F1-Score':<10}")
+        print("-" * 65)
+        for cls_name, m in per_class_metrics.items():
+            print(f"{cls_name:<20} | {m['sensitivity']:<12.4f} | {m['specificity']:<12.4f} | {m['f1_score']:<10.4f}")
+        print("=" * 65 + "\n")
 
 # ============================================================
 # 7. Grad-CAM – کمکی‌های مشترک
@@ -482,7 +585,9 @@ def generate_gradcam(
         vit | vit_b16 |
         swin | swin_tiny |
         convnext | convnext_tiny |
-        mobilenet | mobilenetv3
+        mobilenet | mobilenetv3 |
+        densenet | densenet121 | densenet169 | densenet201 |
+        efficientnet | efficientnet_b0 | efficientnet_b1 |
     """
     model.eval()
     rgb_img_float, input_tensor = load_image_for_cam(image_path, img_size, device)
@@ -509,10 +614,15 @@ def generate_gradcam(
         target_layers = [model.features[-1][-1]]
     elif arch in ("mobilenet", "mobilenetv3", "mobilenet_v3_large"):
         target_layers = [model.features[-1]]
+    elif arch in ("densenet", "densenet121", "densenet161", "densenet169", "densenet201"):
+        last_dense_layer = list(model.features.denseblock4.children())[-1]
+        target_layers = [last_dense_layer.conv2]
+    elif arch.startswith("efficientnet"):
+         target_layers = [model.features[-1]]
     else:
         raise ValueError(
             f"Unsupported architecture for Grad-CAM: {architecture}. "
-            "Supported: resnet, vit, swin, convnext, mobilenet"
+            "Supported: resnet, vit, swin, convnext, mobilenet, densenet, efficientnet"
         )
 
     grayscale_cam = _run_gradcam(
@@ -535,6 +645,7 @@ def generate_gradcam(
 
 
 def save_gradcams_for_predicted_infected(
+    mode,
     model: nn.Module,
     test_dataset,
     full_dataset,
@@ -559,96 +670,97 @@ def save_gradcams_for_predicted_infected(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if mode == True:
+        if clear_previous:
+            clear_output_images(output_dir)
 
-    if clear_previous:
-        clear_output_images(output_dir)
+        model.eval()
+        saved_count = 0
+        test_indices = test_dataset.indices
 
-    model.eval()
-    saved_count = 0
-    test_indices = test_dataset.indices
+        print(f"Saving predicted-infected Grad-CAMs (.png + .npy) to: {output_dir.resolve()}")
 
-    print(f"Saving predicted-infected Grad-CAMs (.png + .npy) to: {output_dir.resolve()}")
+        for i, original_idx in enumerate(test_indices):
+            image_path, true_label = full_dataset.samples[original_idx]
 
-    for i, original_idx in enumerate(test_indices):
-        image_path, true_label = full_dataset.samples[original_idx]
+            try:
+                result = generate_gradcam(
+                    model=model,
+                    image_path=image_path,
+                    target_class_idx=infected_class_idx,
+                    device=device,
+                    architecture=architecture,
+                    img_size=img_size,
+                )
+            except Exception as exc:
+                print(f"[SKIP] Grad-CAM failed for {image_path}: {exc}")
+                continue
 
-        try:
-            result = generate_gradcam(
-                model=model,
-                image_path=image_path,
-                target_class_idx=infected_class_idx,
-                device=device,
-                architecture=architecture,
-                img_size=img_size,
-            )
-        except Exception as exc:
-            print(f"[SKIP] Grad-CAM failed for {image_path}: {exc}")
-            continue
+            pred_idx = result["pred_idx"]
+            pred_conf = result["pred_conf"]
 
-        pred_idx = result["pred_idx"]
-        pred_conf = result["pred_conf"]
+            # فقط نمونه‌هایی که مدل آن‌ها را بیمار تشخیص داده
+            if pred_idx != infected_class_idx:
+                continue
 
-        # فقط نمونه‌هایی که مدل آن‌ها را بیمار تشخیص داده
-        if pred_idx != infected_class_idx:
-            continue
+            true_name = class_names[true_label]
+            pred_name = class_names[pred_idx]
+            base_name = Path(image_path).stem
+            case_type = "TP" if true_label == infected_class_idx else "FP"
 
-        true_name = class_names[true_label]
-        pred_name = class_names[pred_idx]
-        base_name = Path(image_path).stem
-        case_type = "TP" if true_label == infected_class_idx else "FP"
-
-        common_name = (
-            f"{base_name}"
-            f"_case-{case_type}"
-        )
-
-        save_path_img = output_dir / f"{common_name}.png"
-        save_path_npy = output_dir / f"{common_name}_heatmap.npy"
-
-        # ذخیره heatmap به صورت .npy
-        grayscale_cam = result["grayscale_cam"].astype(np.float32)
-        np.save(str(save_path_npy), grayscale_cam)
-
-        # تصویر ترکیبی
-        original_rgb = (result["original_image"] * 255).clip(0, 255).astype(np.uint8)
-        heatmap_rgb = result["visualization"]
-
-        if original_rgb.shape[:2] != heatmap_rgb.shape[:2]:
-            heatmap_rgb = cv2.resize(
-                heatmap_rgb, (original_rgb.shape[1], original_rgb.shape[0])
+            common_name = (
+                f"{base_name}"
+                f"_case-{case_type}"
             )
 
-        combined_rgb = np.concatenate([original_rgb, heatmap_rgb], axis=1)
+            save_path_img = output_dir / f"{common_name}.png"
+            save_path_npy = output_dir / f"{common_name}_heatmap.npy"
 
-        info_bar_height = 140
-        _, w, _ = combined_rgb.shape
-        info_bar = np.ones((info_bar_height, w, 3), dtype=np.uint8) * 255
+            # ذخیره heatmap به صورت .npy
+            grayscale_cam = result["grayscale_cam"].astype(np.float32)
+            np.save(str(save_path_npy), grayscale_cam)
 
-        text1 = f"True: {true_name}    Pred: {pred_name}"
-        text2 = f"Case: {case_type}"
-        text3 = f"File: {base_name}"
-        text4 = f"Conf: {pred_conf:.3f}"
+            # تصویر ترکیبی
+            original_rgb = (result["original_image"] * 255).clip(0, 255).astype(np.uint8)
+            heatmap_rgb = result["visualization"]
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(info_bar, text1, (15, 30), font, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(info_bar, text2, (30, 60), font, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(info_bar, text3, (45, 90), font, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
-        cv2.putText(info_bar, text4, (60, 120), font, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
+            if original_rgb.shape[:2] != heatmap_rgb.shape[:2]:
+                heatmap_rgb = cv2.resize(
+                    heatmap_rgb, (original_rgb.shape[1], original_rgb.shape[0])
+                )
 
-        final_rgb = np.concatenate([combined_rgb, info_bar], axis=0)
-        final_bgr = cv2.cvtColor(final_rgb, cv2.COLOR_RGB2BGR)
-        success = cv2.imwrite(str(save_path_img), final_bgr)
+            combined_rgb = np.concatenate([original_rgb, heatmap_rgb], axis=1)
 
-        if success:
-            saved_count += 1
-            print(f"[{saved_count}] Saved: {save_path_img.name} + {save_path_npy.name}")
-        else:
-            print(f"Failed to save image for: {common_name}")
+            info_bar_height = 140
+            _, w, _ = combined_rgb.shape
+            info_bar = np.ones((info_bar_height, w, 3), dtype=np.uint8) * 255
 
-    print(f"\nTotal predicted-infected samples saved: {saved_count}")
-    print(f"Output folder: {output_dir.resolve()}")
-    return saved_count
+            text1 = f"True: {true_name}    Pred: {pred_name}"
+            text2 = f"Case: {case_type}"
+            text3 = f"File: {base_name}"
+            text4 = f"Conf: {pred_conf:.3f}"
 
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(info_bar, text1, (15, 30), font, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(info_bar, text2, (30, 60), font, 0.65, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(info_bar, text3, (45, 90), font, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
+            cv2.putText(info_bar, text4, (60, 120), font, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
+
+            final_rgb = np.concatenate([combined_rgb, info_bar], axis=0)
+            final_bgr = cv2.cvtColor(final_rgb, cv2.COLOR_RGB2BGR)
+            success = cv2.imwrite(str(save_path_img), final_bgr)
+
+            if success:
+                saved_count += 1
+                print(f"[{saved_count}] Saved: {save_path_img.name} + {save_path_npy.name}")
+            else:
+                print(f"Failed to save image for: {common_name}")
+
+        print(f"\nTotal predicted-infected samples saved: {saved_count}")
+        print(f"Output folder: {output_dir.resolve()}")
+        return saved_count
+    else:
+        print(f"XAI_ENABLE = {mode}. So there is no heatmap to generate or save." )
 
 # ============================================================
 # 8. بارگذاری امن وزن‌ها

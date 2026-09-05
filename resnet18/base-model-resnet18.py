@@ -1,9 +1,10 @@
 import os
 import copy
 import time
+from pathlib import Path
+import sys
 
 import matplotlib.pyplot as plt
-
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
 
 import torch
@@ -11,13 +12,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, models
-import sys
-from pathlib import Path
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 
 from common_utils import (
     set_seed,
@@ -33,17 +32,17 @@ from common_utils import (
     save_gradcams_for_predicted_infected,
     load_model_weights,
     plot_learning_curves,
+    log_test_metrics,
 )
 
-
 # =====================================================================
-# تنظیمات اجرا
+# Execution Configuration
 # =====================================================================
-MODE = "eval"  # "train" یا "eval"
 CONFIG_PATH = "MVconfig.yaml"
 
 config = load_config(CONFIG_PATH)
 
+MODE = config['MODE']
 DATA_ROOT = config["DATA_ROOT_SPLITED"]
 DATA_SUBSET = config["DATA_SUBSET"]
 IMG_SIZE = config["IMG_SIZE"]
@@ -54,12 +53,15 @@ VAL_RATIO = config["VAL_RATIO"]
 TEST_RATIO = config["TEST_RATIO"]
 NUM_CLASSES = config["NUM_CLASSES"]
 INFECTED_CLASS_NAME = config["INFECTED_CLASS_NAME"]
+XAI_ENABLE = config["XAI_ENABLE"]
+
+WEIGHT_DECAY = 1e-4
 
 MODEL_NAME = "ResNet18"
 MODEL_TAG = "resnet18"
 
 # =====================================================================
-# تنظیمات اولیه
+# Initialization & Setup
 # =====================================================================
 SEED = 42
 set_seed(SEED)
@@ -69,54 +71,58 @@ print("Using device:", DEVICE)
 
 PIN_MEMORY = DEVICE.type == "cuda"
 
-
 # =====================================================================
-# مسیرها
+# Directory Paths
 # =====================================================================
 TRAIN_DATA_DIR = os.path.join(DATA_ROOT, "train")
 VAL_DATA_DIR = os.path.join(DATA_ROOT, "val")
+TEST_DATA_DIR = os.path.join(DATA_ROOT, "test")
 
-RUN_LOG_PATH =  str(SCRIPT_DIR / f"resnet18_training_log_{DATA_SUBSET.lower()}.jsonl")
-
-GRADCAM_OUTPUT_DIR =  str(SCRIPT_DIR / f"gradcam_RESNET18_{DATA_SUBSET.lower()}_infected_predictions")
-MODEL_SAVE_PATH =  str(SCRIPT_DIR / f"resnet18_{DATA_SUBSET.lower()}_salmonscan.pth")
-
+RUN_LOG_PATH = str(SCRIPT_DIR / f"resnet18_training_log_{DATA_SUBSET.lower()}.jsonl")
+GRADCAM_OUTPUT_DIR = str(SCRIPT_DIR / f"gradcam_RESNET18_{DATA_SUBSET.lower()}_infected_predictions")
+MODEL_SAVE_PATH = str(SCRIPT_DIR / f"resnet18_{DATA_SUBSET.lower()}_salmonscan.pth")
+CONFUSION_MATRIX_PATH = str(SCRIPT_DIR / f"{MODEL_TAG}_cm_{DATA_SUBSET.lower()}.png")
+LC_PATH =  str(SCRIPT_DIR / f"{MODEL_TAG}_lc_{DATA_SUBSET.lower()}.png")
 
 # =====================================================================
 # Transforms
 # =====================================================================
 train_transform = get_train_transform(IMG_SIZE)
-val_transform = get_test_transform(IMG_SIZE)
-
+eval_transform = get_test_transform(IMG_SIZE)
 
 # =====================================================================
-# لود دیتاست
+# Datasets and DataLoaders
 # =====================================================================
 train_dataset = datasets.ImageFolder(
     root=TRAIN_DATA_DIR,
     transform=train_transform
 )
 
-# دیتاست پایه validation
-# این دیتاست را هم برای DataLoader و هم برای Grad-CAM استفاده می‌کنیم.
 val_base_dataset = datasets.ImageFolder(
     root=VAL_DATA_DIR,
-    transform=val_transform
+    transform=eval_transform
 )
 
-# برای سازگاری با تابع save_gradcams_for_predicted_infected در common_utils
-# چون آن تابع انتظار دارد test_dataset.indices وجود داشته باشد.
+test_base_dataset = datasets.ImageFolder(
+    root=TEST_DATA_DIR,
+    transform=eval_transform
+)
+
 val_dataset = Subset(
     val_base_dataset,
     list(range(len(val_base_dataset)))
 )
 
+test_dataset = Subset(
+    test_base_dataset,
+    list(range(len(test_base_dataset)))
+)
+
 class_names = train_dataset.classes
 
 print("Classes:", class_names)
-print("Train images:", len(train_dataset))
-print("Val images:", len(val_dataset))
-print("Total images:", len(train_dataset) + len(val_dataset))
+print(f"Dataset summary -> Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}")
+print("Total images:", len(train_dataset) + len(val_dataset) + len(test_dataset))
 
 if INFECTED_CLASS_NAME not in class_names:
     raise ValueError(
@@ -125,7 +131,6 @@ if INFECTED_CLASS_NAME not in class_names:
 
 INFECTED_CLASS_IDX = class_names.index(INFECTED_CLASS_NAME)
 print("Infected class index:", INFECTED_CLASS_IDX)
-
 
 train_loader = DataLoader(
     train_dataset,
@@ -143,45 +148,47 @@ val_loader = DataLoader(
     pin_memory=PIN_MEMORY
 )
 
-print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)}")
-
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    num_workers=0,
+    pin_memory=PIN_MEMORY
+)
 
 # =====================================================================
-# ساخت مدل ResNet18
+# Model Architecture
 # =====================================================================
 def build_model(num_classes: int = 2) -> nn.Module:
     model = models.resnet18(
         weights=models.ResNet18_Weights.DEFAULT
     )
-
     in_features = model.fc.in_features
     model.fc = nn.Linear(in_features, num_classes)
-
     return model
-
 
 model = build_model(NUM_CLASSES).to(DEVICE)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(
     model.parameters(),
-    lr=LEARNING_RATE
+    lr=LEARNING_RATE,
+    weight_decay=WEIGHT_DECAY
 )
 
-
 # =====================================================================
-# تابع اصلی
+# Main Execution Pipeline
 # =====================================================================
 def main():
     if MODE == "train":
         print("\n--- Running Mode: TRAIN ---")
 
         best_model_wts = copy.deepcopy(model.state_dict())
+        best_val_loss = float("inf")
         best_val_acc = 0.0
 
         train_losses = []
         val_losses = []
-
         train_accs = []
         val_accs = []
 
@@ -242,10 +249,13 @@ def main():
                 f"GPU Peak: {gpu_peak_mb:.2f} MB"
             )
 
-            if val_acc > best_val_acc:
+            # Checkpoint selection based on best validation loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 best_val_acc = val_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
 
+        # Load best weights before testing and saving
         model.load_state_dict(best_model_wts)
 
         torch.save(
@@ -253,31 +263,36 @@ def main():
             MODEL_SAVE_PATH
         )
 
-        print(f"\nModel saved to: {MODEL_SAVE_PATH}")
-        print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+        print(f"\nBest Model saved to: {MODEL_SAVE_PATH}")
+        print(f"Best Validation Loss: {best_val_loss:.4f} | Best Val Acc: {best_val_acc:.4f}")
 
         plot_learning_curves(
             train_losses=train_losses,
             val_losses=val_losses,
             train_accs=train_accs,
             val_accs=val_accs,
-            MODEL_NAME = MODEL_NAME
+            MODEL_NAME=MODEL_NAME,
+            LC_PATH=LC_PATH
         )
 
         hyperparameters = collect_hyperparameters(
-            seed=SEED,
-            img_size=IMG_SIZE,
-            batch_size=BATCH_SIZE,
-            num_epochs=NUM_EPOCHS,
-            learning_rate=LEARNING_RATE,
-            val_ratio=VAL_RATIO,
-            test_ratio=TEST_RATIO,
-            model="ResNet18",
-            data_subset=DATA_SUBSET,
-            device=str(DEVICE),
-            train_size=len(train_dataset),
-            val_size=len(val_dataset)
-        )
+                    seed=SEED,
+                    img_size=IMG_SIZE,
+                    batch_size=BATCH_SIZE,
+                    num_epochs=NUM_EPOCHS,
+                    learning_rate=LEARNING_RATE,
+                    val_ratio=VAL_RATIO,
+                    test_ratio=TEST_RATIO,
+                    model=MODEL_NAME,
+                    model_tag=MODEL_TAG,
+                    data_subset=DATA_SUBSET,
+                    device=str(DEVICE),
+                    train_size=len(train_dataset),
+                    val_size=len(val_dataset),
+                    weight_decay=WEIGHT_DECAY,
+                    optimizer="AdamW",
+                    pretrained="ImageNet",
+                )
 
         log_training_run(
             hyperparameters=hyperparameters,
@@ -312,20 +327,33 @@ def main():
         raise ValueError("MODE must be either 'train' or 'eval'.")
 
     # =================================================================
-    # بخش مشترک ارزیابی نهایی و XAI
+    # Final Test Set Evaluation
     # =================================================================
-    eval_loss, eval_acc, y_true, y_pred = evaluate(
+    test_loss, test_acc, y_true, y_pred = evaluate(
         model=model,
-        loader=val_loader,
+        loader=test_loader,
         criterion=criterion,
         device=DEVICE
     )
 
-    print("\n===== Validation/Test Results =====")
-    print(f"Loss: {eval_loss:.4f}")
-    print(f"Accuracy: {eval_acc:.4f}")
+    print("\n===== Final Test Results =====")
+    print(f"Test Loss: {test_loss:.4f}")
+    print(f"Test Accuracy: {test_acc:.4f}")
 
-    print("\nClassification Report:")
+    log_test_metrics(
+    log_path=RUN_LOG_PATH,
+    test_loss=test_loss,
+    test_acc=test_acc,
+    model_name=MODEL_NAME,
+    model_tag=MODEL_TAG,
+    data_subset=DATA_SUBSET,
+    test_size=len(test_dataset),
+    y_true=y_true,
+    y_pred=y_pred,
+    class_names=class_names,
+)
+
+    print("\nClassification Report (Test Set):")
     print(
         classification_report(
             y_true,
@@ -335,10 +363,7 @@ def main():
         )
     )
 
-    cm = confusion_matrix(
-        y_true,
-        y_pred
-    )
+    cm = confusion_matrix(y_true, y_pred)
 
     disp = ConfusionMatrixDisplay(
         confusion_matrix=cm,
@@ -346,16 +371,17 @@ def main():
     )
 
     disp.plot(cmap="Blues")
-    plt.title(f"Confusion Matrix - {DATA_SUBSET} - ResNet18")
-    plt.show()
+    plt.title(f"Confusion Matrix (Test Set) - {DATA_SUBSET} - ResNet18")
+    plt.savefig(CONFUSION_MATRIX_PATH, dpi=300, bbox_inches="tight")
 
     # =================================================================
-    # Grad-CAM
+    # Explainable AI (Grad-CAM on Test Set)
     # =================================================================
     save_gradcams_for_predicted_infected(
+        mode = XAI_ENABLE,
         model=model,
-        test_dataset=val_dataset,
-        full_dataset=val_base_dataset,
+        test_dataset=test_dataset,
+        full_dataset=test_base_dataset,
         class_names=class_names,
         infected_class_idx=INFECTED_CLASS_IDX,
         output_dir=GRADCAM_OUTPUT_DIR,

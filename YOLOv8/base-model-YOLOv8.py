@@ -1,0 +1,422 @@
+import os
+import copy
+import time
+from pathlib import Path
+import sys
+
+import matplotlib.pyplot as plt
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+)
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, Subset
+from torchvision import datasets
+
+# ====================== YOLO + PyTorch 2.6 FIX ======================
+from ultralytics import YOLO
+from ultralytics.models.yolo.classify import ClassificationTrainer
+from types import MethodType
+
+# رفع خطای WeightsUnpickler در PyTorch 2.6+
+_orig_load = torch.load
+torch.load = lambda *args, **kwargs: _orig_load(*args, **{**kwargs, "weights_only": False})
+
+# ====================== COMMON UTILS ======================
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from common_utils import (
+    set_seed,
+    load_config,
+    get_device,
+    get_train_transform,
+    get_test_transform,
+    get_ram_usage_mb,
+    train_one_epoch,
+    evaluate,
+    collect_hyperparameters,
+    log_training_run,
+    load_model_weights,
+    save_gradcams_for_predicted_infected,
+    plot_learning_curves,
+    log_test_metrics,
+)
+
+# ====================== CONFIG ======================
+CONFIG_PATH = "MVconfig.yaml"
+
+config = load_config(CONFIG_PATH)
+
+MODE = config['MODE']
+DATA_ROOT = config["DATA_ROOT_SPLITED"]
+DATA_SUBSET = config["DATA_SUBSET"]
+IMG_SIZE = config["IMG_SIZE"]
+BATCH_SIZE = config["BATCH_SIZE"]
+NUM_EPOCHS = config["NUM_EPOCHS"]
+LEARNING_RATE = float(config["LEARNING_RATE"])
+VAL_RATIO = config["VAL_RATIO"]
+TEST_RATIO = config["TEST_RATIO"]
+NUM_CLASSES = config["NUM_CLASSES"]
+INFECTED_CLASS_NAME = config["INFECTED_CLASS_NAME"]
+XAI_ENABLE = config["XAI_ENABLE"]
+
+WEIGHT_DECAY = 1e-4
+
+# ====================== MODEL METADATA ======================
+MODEL_NAME = "YOLOv8n-cls"
+MODEL_TAG = "yolov8n_cls"
+
+# ====================== SETUP ======================
+SEED = 42
+set_seed(SEED)
+
+DEVICE = get_device()
+print("Using device:", DEVICE, flush=True)
+PIN_MEMORY = DEVICE.type == "cuda"
+
+# ====================== PATHS ======================
+TRAIN_DATA_DIR = os.path.join(DATA_ROOT, "train")
+VAL_DATA_DIR = os.path.join(DATA_ROOT, "val")
+TEST_DATA_DIR = os.path.join(DATA_ROOT, "test")
+
+RUN_LOG_PATH = str(SCRIPT_DIR / f"{MODEL_TAG}_training_log_{DATA_SUBSET.lower()}.jsonl")
+GRADCAM_OUTPUT_DIR = str(SCRIPT_DIR / f"gradcam_{MODEL_TAG}_{DATA_SUBSET.lower()}_infected_predictions")
+MODEL_SAVE_PATH = str(SCRIPT_DIR / f"{MODEL_TAG}_{DATA_SUBSET.lower()}_salmonscan.pth")
+CONFUSION_MATRIX_PATH = str(SCRIPT_DIR / f"{MODEL_TAG}_cm_{DATA_SUBSET.lower()}.png")
+LC_PATH = str(SCRIPT_DIR / f"{MODEL_TAG}_lc_{DATA_SUBSET.lower()}.png")
+
+print("Train dir:", TRAIN_DATA_DIR, flush=True)
+print("Val dir:", VAL_DATA_DIR, flush=True)
+print("Test dir:", TEST_DATA_DIR, flush=True)
+print("Log path:", RUN_LOG_PATH, flush=True)
+print("Grad-CAM output dir:", GRADCAM_OUTPUT_DIR, flush=True)
+print("Model save path:", MODEL_SAVE_PATH, flush=True)
+
+# ====================== TRANSFORMS ======================
+train_transform = get_train_transform(IMG_SIZE)
+eval_transform = get_test_transform(IMG_SIZE)
+
+# ====================== DATASETS & LOADERS ======================
+train_dataset = datasets.ImageFolder(root=TRAIN_DATA_DIR, transform=train_transform)
+val_base_dataset = datasets.ImageFolder(root=VAL_DATA_DIR, transform=eval_transform)
+test_base_dataset = datasets.ImageFolder(root=TEST_DATA_DIR, transform=eval_transform)
+
+val_dataset = Subset(val_base_dataset, list(range(len(val_base_dataset))))
+test_dataset = Subset(test_base_dataset, list(range(len(test_base_dataset))))
+
+class_names = train_dataset.classes
+print("Classes:", class_names, flush=True)
+print(f"Dataset summary -> Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}", flush=True)
+
+if INFECTED_CLASS_NAME not in class_names:
+    raise ValueError(f"Class '{INFECTED_CLASS_NAME}' not found in dataset classes: {class_names}")
+
+INFECTED_CLASS_IDX = class_names.index(INFECTED_CLASS_NAME)
+print("Infected class index:", INFECTED_CLASS_IDX, flush=True)
+
+train_loader = DataLoader(
+    train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+    num_workers=0, pin_memory=PIN_MEMORY
+)
+val_loader = DataLoader(
+    val_dataset, batch_size=BATCH_SIZE, shuffle=False,
+    num_workers=0, pin_memory=PIN_MEMORY
+)
+test_loader = DataLoader(
+    test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+    num_workers=0, pin_memory=PIN_MEMORY
+)
+
+# ====================== BUILD MODEL ======================
+# ====================== BUILD MODEL ======================
+def build_model(num_classes: int = 2) -> nn.Module:
+    """
+    بارگذاری YOLOv8n-cls و تغییر لایه نهایی برای تعداد کلاس‌های ما
+    """
+    yolo = YOLO("yolov8n-cls.pt")
+    model = yolo.model                    # ClassificationModel
+
+    # پیدا کردن لایه Linear نهایی
+    classify_head = model.model[-1]       # این ماژول Classify است
+
+    if hasattr(classify_head, 'linear'):
+        # ultralytics جدید
+        in_features = classify_head.linear.in_features
+        classify_head.linear = nn.Linear(in_features, num_classes)
+    elif hasattr(classify_head, 'fc'):
+        # بعضی نسخه‌ها
+        in_features = classify_head.fc.in_features
+        classify_head.fc = nn.Linear(in_features, num_classes)
+    else:
+        # حالت Sequential قدیمی
+        # معمولاً آخرین لایه Linear است
+        last_layer = classify_head[-1] if isinstance(classify_head, nn.Sequential) else classify_head
+        in_features = last_layer.in_features
+        if isinstance(classify_head, nn.Sequential):
+            classify_head[-1] = nn.Linear(in_features, num_classes)
+        else:
+            # fallback
+            model.model[-1] = nn.Linear(in_features, num_classes)
+
+    print(f"Model head changed to {num_classes} classes", flush=True)
+    return model
+
+
+model = build_model(NUM_CLASSES).to(DEVICE)
+
+# ====================== LOSS / OPTIMIZER  ======================
+criterion = nn.CrossEntropyLoss()
+
+optimizer = optim.AdamW(
+    model.parameters(),
+    lr=LEARNING_RATE,
+    weight_decay=WEIGHT_DECAY,
+)
+
+
+# ====================== CUSTOM LOSS (برای train accuracy) ======================
+def classification_loss_with_accuracy(model, batch, preds=None):
+    if getattr(model, "criterion", None) is None:
+        model.criterion = model.init_criterion()
+
+    if preds is None:
+        preds = model.forward(batch["img"])
+
+    trainer = getattr(model, "_accuracy_trainer", None)
+
+    if trainer is not None and model.training:
+        with torch.no_grad():
+            predicted = preds.argmax(dim=1)
+            target = batch["cls"].to(predicted.device)
+            trainer.train_correct += (predicted == target).sum().item()
+            trainer.train_total += target.numel()
+
+    return model.criterion(preds, batch)
+
+
+# ====================== CUSTOM TRAINER ======================
+class CustomClassificationTrainer(ClassificationTrainer):
+    def _setup_train(self, world_size=1):
+        super()._setup_train(world_size)
+        self.model._accuracy_trainer = self
+        self.model.loss = MethodType(classification_loss_with_accuracy, self.model)
+
+    def save_model(self):
+        # ذخیره خودکار ultralytics را کاملاً غیرفعال می‌کنیم
+        # تا ارور pickle مربوط به DataLoader iterator پیش نیاید
+        pass
+
+
+# ====================== MAIN ======================
+def main():
+    if MODE == "train":
+        print(f"\n--- Running Mode: TRAIN ({MODEL_NAME}) ---", flush=True)
+
+        best_model_wts = copy.deepcopy(model.state_dict())
+        best_val_loss = float("inf")
+        best_val_acc = 0.0
+
+        train_losses, val_losses = [], []
+        train_accs, val_accs = [], []
+        epoch_times, epoch_ram_mb, epoch_gpu_peak_mb = [], [], []
+
+        for epoch in range(NUM_EPOCHS):
+            if DEVICE.type == "cuda":
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats(DEVICE)
+                torch.cuda.synchronize()
+
+            epoch_start = time.perf_counter()
+
+            train_loss, train_acc = train_one_epoch(
+                model=model,
+                loader=train_loader,
+                criterion=criterion,
+                optimizer=optimizer,
+                device=DEVICE,
+            )
+
+            val_loss, val_acc, _, _ = evaluate(
+                model=model,
+                loader=val_loader,
+                criterion=criterion,
+                device=DEVICE,
+            )
+
+            if DEVICE.type == "cuda":
+                torch.cuda.synchronize()
+                gpu_peak_mb = torch.cuda.max_memory_allocated(DEVICE) / (1024 ** 2)
+            else:
+                gpu_peak_mb = 0.0
+
+            epoch_time = time.perf_counter() - epoch_start
+            ram_usage = get_ram_usage_mb()
+
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+            train_accs.append(train_acc)
+            val_accs.append(val_acc)
+            epoch_times.append(epoch_time)
+            epoch_ram_mb.append(ram_usage)
+            epoch_gpu_peak_mb.append(gpu_peak_mb)
+
+            current_lr = optimizer.param_groups[0]["lr"]
+
+            print(
+                f"Epoch [{epoch + 1}/{NUM_EPOCHS}] | "
+                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                f"LR: {current_lr:.8f} | "
+                f"Time: {epoch_time:.2f}s | RAM: {ram_usage:.2f} MB | "
+                f"GPU Peak: {gpu_peak_mb:.2f} MB",
+                flush=True,
+            )
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_val_acc = val_acc
+                best_model_wts = copy.deepcopy(model.state_dict())
+                print(f"  -> Best model updated. Val Loss: {best_val_loss:.4f} (Val Acc: {best_val_acc:.4f})", flush=True)
+
+        # Load best weights
+        model.load_state_dict(best_model_wts)
+        torch.save(model.state_dict(), MODEL_SAVE_PATH)
+
+        print(f"\nBest {MODEL_NAME} model saved to: {MODEL_SAVE_PATH}", flush=True)
+        print(f"Best Validation Loss: {best_val_loss:.4f} | Best Val Acc: {best_val_acc:.4f}", flush=True)
+
+        plot_learning_curves(
+            train_losses=train_losses,
+            val_losses=val_losses,
+            train_accs=train_accs,
+            val_accs=val_accs,
+            MODEL_NAME=MODEL_NAME,
+            LC_PATH=LC_PATH
+        )
+
+        hyperparameters = collect_hyperparameters(
+            seed=SEED,
+            img_size=IMG_SIZE,
+            batch_size=BATCH_SIZE,
+            num_epochs=NUM_EPOCHS,
+            learning_rate=LEARNING_RATE,
+            val_ratio=VAL_RATIO,
+            test_ratio=TEST_RATIO,
+            model=MODEL_NAME,
+            model_tag=MODEL_TAG,
+            data_subset=DATA_SUBSET,
+            device=str(DEVICE),
+            train_size=len(train_dataset),
+            val_size=len(val_dataset),
+            weight_decay=WEIGHT_DECAY,
+            optimizer="AdamW",
+            pretrained="ImageNet",
+        )
+
+        log_training_run(
+            hyperparameters=hyperparameters,
+            train_accs=train_accs,
+            val_accs=val_accs,
+            train_losses=train_losses,
+            val_losses=val_losses,
+            log_path=RUN_LOG_PATH,
+            epoch_times=epoch_times,
+            epoch_ram_mb=epoch_ram_mb,
+            epoch_gpu_peak_mb=epoch_gpu_peak_mb,
+        )
+
+    elif MODE == "eval":
+        print(f"\n--- Running Mode: EVAL ({MODEL_NAME}) ---", flush=True)
+
+        if not os.path.exists(MODEL_SAVE_PATH):
+            raise FileNotFoundError(
+                f"No saved weights found at: {MODEL_SAVE_PATH}. "
+                f"Please train the model first."
+            )
+
+        load_model_weights(
+            model=model,
+            model_save_path=MODEL_SAVE_PATH,
+            device=DEVICE,
+        )
+        print(f"Weights successfully loaded from: {MODEL_SAVE_PATH}", flush=True)
+
+    else:
+        raise ValueError("MODE must be either 'train' or 'eval'.")
+
+    # =================================================================
+    # Final Test Set Evaluation
+    # =================================================================
+    test_loss, test_acc, y_true, y_pred = evaluate(
+        model=model,
+        loader=test_loader,
+        criterion=criterion,
+        device=DEVICE,
+    )
+
+    print(f"\n===== Final Test Results: {MODEL_NAME} =====", flush=True)
+    print(f"Test Loss: {test_loss:.4f}", flush=True)
+    print(f"Test Accuracy: {test_acc:.4f}", flush=True)
+
+    log_test_metrics(
+        log_path=RUN_LOG_PATH,
+        test_loss=test_loss,
+        test_acc=test_acc,
+        model_name=MODEL_NAME,
+        model_tag=MODEL_TAG,
+        data_subset=DATA_SUBSET,
+        test_size=len(test_dataset),
+        y_true=y_true,
+        y_pred=y_pred,
+        class_names=class_names,
+    )
+
+    print("\nClassification Report (Test Set):", flush=True)
+    print(
+        classification_report(
+            y_true,
+            y_pred,
+            target_names=class_names,
+            digits=4,
+            zero_division=0,
+        )
+    )
+
+    cm = confusion_matrix(y_true, y_pred)
+    disp = ConfusionMatrixDisplay(
+        confusion_matrix=cm,
+        display_labels=class_names,
+    )
+    disp.plot(cmap="Blues", values_format="d")
+    plt.title(f"Confusion Matrix (Test Set) - {DATA_SUBSET} - {MODEL_NAME}")
+    plt.tight_layout()
+    plt.savefig(CONFUSION_MATRIX_PATH, dpi=300, bbox_inches="tight")
+    print(f"Confusion matrix saved to: {CONFUSION_MATRIX_PATH}", flush=True)
+
+    # =================================================================
+    # Explainable AI (Grad-CAM)
+    # =================================================================
+    save_gradcams_for_predicted_infected(
+        mode=XAI_ENABLE,
+        model=model,
+        test_dataset=test_dataset,
+        full_dataset=test_base_dataset,
+        class_names=class_names,
+        infected_class_idx=INFECTED_CLASS_IDX,
+        output_dir=GRADCAM_OUTPUT_DIR,
+        device=DEVICE,
+        architecture=MODEL_TAG,
+        img_size=IMG_SIZE,
+        clear_previous=True,
+    )
+
+
+if __name__ == "__main__":
+    main()

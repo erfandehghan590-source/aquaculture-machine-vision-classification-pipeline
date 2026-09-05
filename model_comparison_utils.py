@@ -1,29 +1,14 @@
-"""
-model_comparison_utils.py
--------------------------
-ابزارهای مقایسه‌ی مدل‌های طبقه‌بندی و XAI برای پروژه SalmonScan.
-
-قابلیت‌ها:
-1) خواندن لاگ‌های JSONL آموزشی مدل‌ها
-2) استخراج hyperparameterها و خلاصه‌ی عملکرد هر مدل
-3) مقایسه‌ی Heatmapهای Grad-CAM با Soft Ground Truth پزشکی
-4) ذخیره‌ی جدول مقایسه در CSV و Excel
-5) تولید نمودارهای مقایسه‌ای
-"""
-
 from __future__ import annotations
-
 import json
 import re
 from pathlib import Path
 from typing import Any, Optional
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import seaborn as sns
 from skimage.metrics import structural_similarity as ssim
-
+from adjustText import adjust_text
 
 # ============================================================
 # 1. معیارهای مقایسه Heatmap
@@ -314,38 +299,6 @@ def evaluate_heatmaps_against_ground_truth(
 # ============================================================
 # 5. خواندن لاگ‌های آموزشی JSONL
 # ============================================================
-def read_latest_training_log(log_path: str | Path) -> dict[str, Any]:
-    """
-    آخرین Run ثبت‌شده را از فایل JSONL می‌خواند.
-
-    هر خط JSONL نشان‌دهنده‌ی یک اجرای مستقل آموزش است.
-    """
-    log_path = Path(log_path)
-
-    if not log_path.exists():
-        raise FileNotFoundError(f"Training log not found: {log_path.resolve()}")
-
-    records = []
-
-    with log_path.open("r", encoding="utf-8") as file:
-        for line_number, line in enumerate(file, start=1):
-            line = line.strip()
-
-            if not line:
-                continue
-
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"Invalid JSON in {log_path.name}, line {line_number}: {exc}"
-                ) from exc
-
-    if not records:
-        raise RuntimeError(f"No valid training records found in: {log_path.resolve()}")
-
-    return records[-1]
-
 
 def summarize_training_log(
     log_path: str | Path,
@@ -360,54 +313,98 @@ def summarize_training_log(
     - بهترین epoch بر اساس Val Accuracy
     - آخرین epoch
     - میانگین زمان/RAM/GPU Peak
+    - نتایج نهایی Test Set و متریک‌های هر کلاس
     """
-    record = read_latest_training_log(log_path)
+    log_path = Path(log_path)
 
-    hyperparameters = record.get("hyperparameters", {})
-    epochs = record.get("epochs", [])
+    # ------------------------------------------------------------------
+    # خواندن کل فایل و جدا کردن رکورد training از رکورد final_test
+    # ------------------------------------------------------------------
+    training_record = None
+    test_acc = None
+    test_loss = None
+    test_size = None
+    per_class_metrics = {}  # <-- ۱. متغیر ذخیره متریک‌های کلاس‌ها
 
-    if not epochs:
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            # آخرین رکورد training که epochs دارد را نگه می‌داریم
+            if "epochs" in item and isinstance(item["epochs"], list) and item["epochs"]:
+                training_record = item
+
+            # آخرین رکورد final_test را نگه می‌داریم
+            if item.get("event") == "final_test":
+                test_acc = item.get("test_acc")
+                test_loss = item.get("test_loss")
+                test_size = item.get("test_size")
+                per_class_metrics = item.get("per_class_metrics", {})  # <-- ۲. استخراج دیکشنری متریک‌ها
+
+    if training_record is None:
         raise RuntimeError(f"No epoch information in log: {log_path}")
 
+    hyperparameters = training_record.get("hyperparameters", {})
+    epochs = training_record.get("epochs", [])
+
     if model_name is None:
-        model_name = hyperparameters.get("model", Path(log_path).stem)
+        model_name = hyperparameters.get("model", log_path.stem)
 
     best_epoch_data = max(
         epochs,
         key=lambda item: item.get("val_acc", float("-inf")),
     )
-
     last_epoch_data = epochs[-1]
 
     summary: dict[str, Any] = {
         "model": model_name,
-        "log_path": str(Path(log_path).resolve()),
-        "datetime": record.get("datetime"),
+        "log_path": str(log_path.resolve()),
+        "datetime": training_record.get("datetime"),
         "num_logged_epochs": len(epochs),
 
-        # نتایج بهترین epoch از نظر Validation Accuracy
+        # بهترین epoch
         "best_epoch": best_epoch_data.get("epoch"),
         "best_train_loss": best_epoch_data.get("train_loss"),
         "best_train_acc": best_epoch_data.get("train_acc"),
         "best_val_loss": best_epoch_data.get("val_loss"),
         "best_val_acc": best_epoch_data.get("val_acc"),
 
-        # نتایج آخرین epoch
+        # آخرین epoch
         "last_epoch": last_epoch_data.get("epoch"),
         "last_train_loss": last_epoch_data.get("train_loss"),
         "last_train_acc": last_epoch_data.get("train_acc"),
         "last_val_loss": last_epoch_data.get("val_loss"),
         "last_val_acc": last_epoch_data.get("val_acc"),
 
-        # میانگین منابع در همه epochها
+        # منابع
         "mean_epoch_time_sec": _safe_mean(epochs, "time_sec"),
         "mean_ram_mb": _safe_mean(epochs, "ram_mb"),
         "max_ram_mb": _safe_max(epochs, "ram_mb"),
         "mean_gpu_peak_mb": _safe_mean(epochs, "gpu_peak_mb"),
         "max_gpu_peak_mb": _safe_max(epochs, "gpu_peak_mb"),
+
+        # نتایج تست کلی
+        "test_acc": test_acc,
+        "test_loss": test_loss,
+        "test_size": test_size,
     }
 
-    # Hyperparameterها را با prefix اضافه می‌کنیم تا در جدول مشخص باشند
+    # ------------------------------------------------------------------
+    # درج صریح متریک‌های کلاسی در Summary
+    # ------------------------------------------------------------------
+    if per_class_metrics:
+        for cls_name, metrics in per_class_metrics.items():
+            summary[f"{cls_name}_sens"] = metrics.get("sensitivity")
+            summary[f"{cls_name}_spec"] = metrics.get("specificity")
+            summary[f"{cls_name}_f1"] = metrics.get("f1_score")
+
+    # Hyperparameterها
     for key, value in hyperparameters.items():
         summary[f"hp_{key}"] = value
 
@@ -433,7 +430,6 @@ def _safe_max(epoch_data: list[dict[str, Any]], key: str) -> Optional[float]:
 
     return float(np.max(values)) if values else None
 
-
 def epochs_to_dataframe(
     log_path: str | Path,
     model_name: Optional[str] = None,
@@ -441,17 +437,36 @@ def epochs_to_dataframe(
     """
     همه‌ی اطلاعات epochهای آخرین Run یک مدل را به DataFrame تبدیل می‌کند.
     """
-    record = read_latest_training_log(log_path)
+    log_path = Path(log_path)
 
-    hyperparameters = record.get("hyperparameters", {})
-    epochs = record.get("epochs", [])
+    training_record = None
+
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            # آخرین رکوردی که epochs دارد را نگه می‌داریم
+            if "epochs" in item and isinstance(item["epochs"], list) and item["epochs"]:
+                training_record = item
+
+    if training_record is None:
+        raise RuntimeError(f"No epoch information in log: {log_path}")
+
+    hyperparameters = training_record.get("hyperparameters", {})
+    epochs = training_record.get("epochs", [])
 
     if model_name is None:
-        model_name = hyperparameters.get("model", Path(log_path).stem)
+        model_name = hyperparameters.get("model", log_path.stem)
 
     df = pd.DataFrame(epochs)
     df.insert(0, "model", model_name)
-    df.insert(1, "run_datetime", record.get("datetime"))
+    df.insert(1, "run_datetime", training_record.get("datetime"))
 
     return df
 
@@ -493,41 +508,38 @@ def _empty_xai_summary(
         "SSIM_mean": np.nan,
         "SSIM_std": np.nan,
     }
-
 def compare_models(
     model_configs: list[dict[str, Any]],
     gt_folder: Optional[str | Path] = None,
     threshold: float = 0.65,
     output_dir: str | Path = "model_comparison_results",
     save_excel: bool = True,
+    enable_xai: bool = False,          # <-- جدید
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     مقایسه‌ی جامع مدل‌ها با یا بدون Soft Ground Truth پزشکی.
 
-    اگر gt_folder برابر None باشد یا مسیر آن وجود نداشته باشد،
-    مقایسه‌ی آموزش، Accuracy، زمان و حافظه اجرا می‌شود؛
-    اما معیارهای XAI با NaN ثبت می‌شوند.
+    اگر enable_xai=False باشد یا gt_folder در دسترس نباشد،
+    فقط مقایسه‌ی آموزش، Accuracy، زمان و حافظه اجرا می‌شود.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     gt_path = Path(gt_folder) if gt_folder is not None else None
     gt_available = (
-        gt_path is not None
+        enable_xai
+        and gt_path is not None
         and gt_path.exists()
         and gt_path.is_dir()
         and any(gt_path.glob("*.npy"))
     )
 
     if gt_available:
-        print(
-            f"Soft Ground Truth found: {gt_path.resolve()}",
-            flush=True,
-        )
+        print(f"Soft Ground Truth found: {gt_path.resolve()}", flush=True)
     else:
         print(
-            "[WARNING] Soft Ground Truth is not available. "
-            "XAI metrics will be skipped.",
+            "[INFO] XAI evaluation is disabled or Ground Truth is unavailable. "
+            "Only training / efficiency metrics will be reported.",
             flush=True,
         )
 
@@ -536,9 +548,12 @@ def compare_models(
     heatmap_dfs: list[pd.DataFrame] = []
 
     for config in model_configs:
-        required_keys = {"name", "log_path", "heatmap_folder"}
-        missing = required_keys - set(config)
+        # heatmap_folder فقط وقتی XAI فعال است اجباری است
+        required_keys = {"name", "log_path"}
+        if enable_xai:
+            required_keys.add("heatmap_folder")
 
+        missing = required_keys - set(config)
         if missing:
             raise ValueError(
                 f"Model configuration is missing keys: {missing}. "
@@ -576,7 +591,7 @@ def compare_models(
         else:
             xai_summary = _empty_xai_summary(
                 model_name=model_name,
-                pred_folder=config["heatmap_folder"],
+                pred_folder=config.get("heatmap_folder"),
                 gt_folder=gt_folder,
                 threshold=threshold,
             )
@@ -596,8 +611,7 @@ def compare_models(
             )
 
             print(
-                f"[{model_name}] XAI evaluation skipped: "
-                "medical annotations are unavailable.",
+                f"[{model_name}] XAI evaluation skipped.",
                 flush=True,
             )
 
@@ -621,9 +635,10 @@ def compare_models(
         else pd.DataFrame()
     )
 
+    # مرتب‌سازی: اول test_acc (اگر وجود داشته باشد)، بعد best_val_acc
     sort_columns = [
         column
-        for column in ["best_val_acc", "SoftDice_mean", "SSIM_mean"]
+        for column in ["test_acc", "best_val_acc", "SoftDice_mean", "SSIM_mean"]
         if (
             column in model_summary_df.columns
             and model_summary_df[column].notna().any()
@@ -637,6 +652,9 @@ def compare_models(
             na_position="last",
         ).reset_index(drop=True)
 
+    # ------------------------------------------------------------------
+    # ذخیره فایل‌ها
+    # ------------------------------------------------------------------
     summary_csv = output_dir / "models_comparison_summary.csv"
     epochs_csv = output_dir / "models_all_epochs.csv"
     heatmaps_csv = output_dir / "models_xai_per_image.csv"
@@ -650,25 +668,20 @@ def compare_models(
 
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             model_summary_df.to_excel(
-                writer,
-                sheet_name="Model Summary",
-                index=False,
+                writer, sheet_name="Model Summary", index=False
             )
-
             all_epochs_df.to_excel(
-                writer,
-                sheet_name="All Epochs",
-                index=False,
+                writer, sheet_name="All Epochs", index=False
             )
-
             all_heatmaps_df.to_excel(
-                writer,
-                sheet_name="XAI Per Image",
-                index=False,
+                writer, sheet_name="XAI Per Image", index=False
             )
 
         print(f"\nExcel saved to: {excel_path.resolve()}")
 
+    # ------------------------------------------------------------------
+    # نمایش خلاصه
+    # ------------------------------------------------------------------
     print("\n" + "=" * 90)
     print("Final model comparison summary")
     print("=" * 90)
@@ -679,7 +692,9 @@ def compare_models(
             "model",
             "best_epoch",
             "best_val_acc",
+            "test_acc",          # <-- جدید
             "best_val_loss",
+            "test_loss",         # <-- جدید
             "mean_epoch_time_sec",
             "mean_ram_mb",
             "max_gpu_peak_mb",
@@ -706,60 +721,400 @@ def _safe_filename(name: str) -> str:
     """تبدیل نام مدل به نام فایل امن."""
     return re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")
 
+# ============================================================
+# 7. Model Comparison Plots
+# ============================================================
 
-# ============================================================
-# 7. نمودارهای مقایسه‌ای
-# ============================================================
+def plot_radar_comparison(
+    model_summary_df: pd.DataFrame,
+    output_dir: Path,
+) -> None:
+    """
+    Plots a multi-criteria radar chart comparing models across balanced metrics.
+    Metrics are normalized between 0.1 and 1.0 for fair visual representation.
+    Prefers test_acc over best_val_acc when available.
+    """
+    # Prefer test_acc if it exists and has valid values
+    acc_metric = (
+        "test_acc"
+        if (
+            "test_acc" in model_summary_df.columns
+            and model_summary_df["test_acc"].notna().any()
+        )
+        else "best_val_acc"
+    )
+
+    metric_candidates = [
+        (acc_metric, True),              # Higher is better
+        ("IoU_mean", True),              # Higher is better
+        ("Dice_mean", True),             # Higher is better
+        ("mean_epoch_time_sec", False),  # Lower is better -> Invert
+        ("max_gpu_peak_mb", False),      # Lower is better -> Invert
+    ]
+
+    available_metrics = [
+        (m, higher)
+        for m, higher in metric_candidates
+        if m in model_summary_df.columns and model_summary_df[m].notna().any()
+    ]
+    if len(available_metrics) < 3:
+        return
+
+    metric_names = [m for m, _ in available_metrics]
+
+    norm_df = model_summary_df[["model"] + metric_names].copy()
+    for col, higher_is_better in available_metrics:
+        series = norm_df[col]
+        min_val = series.min(skipna=True)
+        max_val = series.max(skipna=True)
+        if pd.isna(min_val) or pd.isna(max_val) or max_val == min_val:
+            norm_df[col] = 1.0
+        else:
+            if higher_is_better:
+                norm_df[col] = 0.1 + 0.9 * ((series - min_val) / (max_val - min_val))
+            else:
+                norm_df[col] = 0.1 + 0.9 * ((max_val - series) / (max_val - min_val))
+
+    labels = np.array(metric_names)
+    num_vars = len(labels)
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    angles += angles[:1]
+
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+
+    for _, row in norm_df.iterrows():
+        values = row[metric_names].tolist()
+        values += values[:1]
+        ax.plot(angles, values, linewidth=2, label=row["model"])
+        ax.fill(angles, values, alpha=0.1)
+
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=10)
+    ax.set_ylim(0, 1.05)
+    plt.title("Holistic Multi-Criteria Model Comparison", size=14, pad=25)
+    plt.legend(loc="upper right", bbox_to_anchor=(1.35, 1.1), fontsize=9)
+    plt.tight_layout()
+
+    radar_path = output_dir / "comparison_radar_chart.png"
+    plt.savefig(radar_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved radar comparison chart to: {radar_path}", flush=True)
+
+def plot_tradeoff_bubble(
+    model_summary_df: pd.DataFrame,
+    output_dir: Path,
+) -> None:
+    """Accuracy vs. Speed bubble chart with GPU peak memory size.
+
+    Prefers test_acc over best_val_acc when available.
+    """
+    acc_col = (
+        "test_acc"
+        if (
+            "test_acc" in model_summary_df.columns
+            and model_summary_df["test_acc"].notna().any()
+        )
+        else "best_val_acc"
+    )
+
+    req_cols = {"mean_epoch_time_sec", acc_col, "model"}
+    if model_summary_df is None or not req_cols.issubset(
+        model_summary_df.columns
+    ):
+        return
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df = model_summary_df.dropna(subset=list(req_cols)).copy()
+
+    if df.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    size_col = "max_gpu_peak_mb" if "max_gpu_peak_mb" in df.columns else None
+
+    sns.scatterplot(
+        data=df,
+        x="mean_epoch_time_sec",
+        y=acc_col,
+        hue="model",
+        size=size_col,
+        sizes=(120, 900),
+        palette="viridis",
+        alpha=0.85,
+        edgecolor="white",
+        linewidth=0.8,
+        ax=ax,
+    )
+
+    # ساخت لیبل‌ها و نگهداری آن‌ها در یک لیست
+    texts = []
+    for _, r in df.iterrows():
+        t = ax.text(
+            r["mean_epoch_time_sec"],
+            r[acc_col],
+            str(r["model"]),
+            fontsize=8.5,
+            bbox=dict(
+                boxstyle="round,pad=0.25",
+                fc="white",
+                ec="gray",
+                lw=0.5,
+                alpha=0.85,
+            ),
+        )
+        texts.append(t)
+
+    # تنظیم خودکار موقعیت لیبل‌ها جهت جلوگیری از همپوشانی
+    if  texts:
+        adjust_text(
+            texts,
+            ax=ax,
+            arrowprops=dict(
+                arrowstyle="->",
+                color="gray",
+                lw=0.7,
+                alpha=0.7,
+            ),
+            expand=(1.2, 1.3),  # فضای مانور دور نقاط
+            force_text=(0.5, 0.8),  # نیروی رانش بین متن‌ها
+        )
+
+    ylabel = (
+        "Test Accuracy" if acc_col == "test_acc" else "Best Validation Accuracy"
+    )
+    ax.set(
+        xlabel="Mean Epoch Time (seconds)",
+        ylabel=ylabel,
+        title=f"{ylabel} vs. Speed Trade-off (Bubble Size = GPU Peak MB)",
+    )
+    ax.grid(True, linestyle="--", alpha=0.35)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if handles and labels:
+        ax.legend(
+            handles,
+            labels,
+            title="Model / GPU (MB)" if size_col else "Model",
+            bbox_to_anchor=(1.02, 1),
+            loc="upper left",
+            framealpha=0.95,
+            fontsize=8.5,
+        )
+
+    fig.subplots_adjust(right=0.72, left=0.10, bottom=0.12, top=0.90)
+    bubble_path = output_dir / "comparison_tradeoff_bubble.png"
+    fig.savefig(
+        bubble_path,
+        dpi=300,
+        bbox_inches="tight",
+        facecolor="white",
+    )
+    plt.close(fig)
+    print(f"Saved tradeoff bubble chart to: {bubble_path}", flush=True)
+
+def plot_xai_distribution(
+    xai_per_image_df: pd.DataFrame,
+    output_dir: Path,
+) -> None:
+    """
+    Plots box and strip plots for per-image XAI metric distributions across models.
+    """
+    if xai_per_image_df is None or xai_per_image_df.empty:
+        return
+
+    xai_metrics = [m for m in ["IoU", "Dice", "SSIM"] if m in xai_per_image_df.columns]
+    if not xai_metrics:
+        return
+
+    for metric in xai_metrics:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.boxplot(
+            data=xai_per_image_df,
+            x="model",
+            y=metric,
+            palette="Set2",
+            ax=ax,
+        )
+        sns.stripplot(
+            data=xai_per_image_df,
+            x="model",
+            y=metric,
+            color="black",
+            alpha=0.3,
+            jitter=0.2,
+            size=4,
+            ax=ax,
+        )
+        ax.set_title(f"Per-Image {metric} Distribution across Models", fontsize=12)
+        ax.set_xlabel("Model", fontsize=10)
+        ax.set_ylabel(metric, fontsize=10)
+        plt.xticks(rotation=25, ha="right")
+        plt.tight_layout()
+
+        dist_path = output_dir / f"comparison_xai_distribution_{metric.lower()}.png"
+        plt.savefig(dist_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved XAI {metric} distribution chart to: {dist_path}", flush=True)
+
+
 def plot_model_comparison(
     model_summary_df: pd.DataFrame,
     output_dir: str | Path = "model_comparison_results",
+    xai_per_image_df: pd.DataFrame | None = None,
 ) -> None:
     """
-    نمودارهای مقایسه‌ی Accuracy، زمان، RAM/GPU و معیارهای XAI را ذخیره می‌کند.
+    Generates and saves comprehensive comparison charts:
+    1. Train / Val / Test Accuracy (grouped bars)
+    2. Train / Val / Test Loss (grouped bars)
+    3. Mean Epoch Time Bar Chart
+    4. Resource (RAM/GPU) Consumption Chart
+    5. XAI Heatmap Metrics Bar Chart (if available)
+    6. Multi-criteria Radar Chart
+    7. Accuracy vs. Speed Trade-off Bubble Chart
+    8. Per-image XAI Distribution Boxplots (if xai_per_image_df is provided)
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df = model_summary_df.copy()
+    models = df["model"].tolist()
+    x = range(len(models))
 
-    # --------------------------------------------------------
-    # 1. Validation Accuracy
-    # --------------------------------------------------------
-    if "best_val_acc" in df.columns:
-        plt.figure(figsize=(10, 5))
+    # ------------------------------------------------------------------
+    # 1. Train / Val / Test Accuracy (Grouped Bar)
+    # ------------------------------------------------------------------
+    acc_cols = {
+        "best_train_acc": "Train Acc",
+        "best_val_acc": "Val Acc",
+        "test_acc": "Test Acc",
+    }
+    available_acc = {
+        k: v for k, v in acc_cols.items()
+        if k in df.columns and df[k].notna().any()
+    }
 
-        plt.bar(df["model"], df["best_val_acc"], color="steelblue")
+    if available_acc:
+        fig, ax = plt.subplots(figsize=(12, 5.5))
+        width = 0.8 / len(available_acc)
+        colors = ["#4C72B0", "#55A868", "#C44E52"]
 
-        plt.title("Best Validation Accuracy Comparison")
-        plt.xlabel("Model")
-        plt.ylabel("Best Validation Accuracy")
-        plt.ylim(0, 1.05)
-        plt.xticks(rotation=25, ha="right")
+        for i, (col, label) in enumerate(available_acc.items()):
+            offset = (i - (len(available_acc) - 1) / 2) * width
+            values = df[col].fillna(0)
+            bars = ax.bar(
+                [xi + offset for xi in x],
+                values,
+                width=width,
+                label=label,
+                color=colors[i % len(colors)],
+            )
+            for bar, val in zip(bars, df[col]):
+                if pd.notna(val):
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.008,
+                        f"{val:.3f}",
+                        ha="center",
+                        va="bottom",
+                        fontsize=7,
+                        rotation=90,
+                    )
 
-        for index, value in enumerate(df["best_val_acc"]):
-            if pd.notna(value):
-                plt.text(index, value + 0.015, f"{value:.3f}", ha="center")
-
+        ax.set_title("Train / Validation / Test Accuracy Comparison")
+        ax.set_ylabel("Accuracy")
+        ax.set_ylim(0, 1.12)
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(models, rotation=25, ha="right")
+        ax.legend(loc="lower right")
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
         plt.tight_layout()
         plt.savefig(
-            output_dir / "comparison_best_val_accuracy.png",
+            output_dir / "comparison_train_val_test_accuracy.png",
             dpi=300,
             bbox_inches="tight",
         )
-        plt.close()
+        plt.close(fig)
 
-    # --------------------------------------------------------
-    # 2. زمان متوسط هر Epoch
-    # --------------------------------------------------------
-    if "mean_epoch_time_sec" in df.columns:
-        plt.figure(figsize=(10, 5))
+    # ------------------------------------------------------------------
+    # 2. Train / Val / Test Loss (Grouped Bar)
+    # ------------------------------------------------------------------
+    loss_cols = {
+        "best_train_loss": "Train Loss",
+        "best_val_loss": "Val Loss",
+        "test_loss": "Test Loss",
+    }
+    available_loss = {
+        k: v for k, v in loss_cols.items()
+        if k in df.columns and df[k].notna().any()
+    }
 
-        plt.bar(df["model"], df["mean_epoch_time_sec"], color="darkorange")
+    if available_loss:
+        fig, ax = plt.subplots(figsize=(12, 5.5))
+        width = 0.8 / len(available_loss)
+        colors = ["#4C72B0", "#55A868", "#C44E52"]
+        max_loss = df[list(available_loss.keys())].max().max()
 
-        plt.title("Average Epoch Time Comparison")
-        plt.xlabel("Model")
-        plt.ylabel("Average Epoch Time (seconds)")
-        plt.xticks(rotation=25, ha="right")
+        for i, (col, label) in enumerate(available_loss.items()):
+            offset = (i - (len(available_loss) - 1) / 2) * width
+            values = df[col].fillna(0)
+            bars = ax.bar(
+                [xi + offset for xi in x],
+                values,
+                width=width,
+                label=label,
+                color=colors[i % len(colors)],
+            )
+            for bar, val in zip(bars, df[col]):
+                if pd.notna(val):
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.02 * max_loss,
+                        f"{val:.3f}",
+                        ha="center",
+                        va="bottom",
+                        fontsize=7,
+                        rotation=90,
+                    )
+
+        ax.set_title("Train / Validation / Test Loss Comparison")
+        ax.set_ylabel("Loss")
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(models, rotation=25, ha="right")
+        ax.legend(loc="upper right")
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(
+            output_dir / "comparison_train_val_test_loss.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 3. Mean Epoch Time
+    # ------------------------------------------------------------------
+    if "mean_epoch_time_sec" in df.columns and df["mean_epoch_time_sec"].notna().any():
+        fig, ax = plt.subplots(figsize=(10, 5))
+        bars = ax.bar(df["model"], df["mean_epoch_time_sec"], color="darkorange")
+        ax.set_title("Average Epoch Time Comparison")
+        ax.set_xlabel("Model")
+        ax.set_ylabel("Average Epoch Time (seconds)")
+        ax.set_xticks(range(len(df["model"])))
+        ax.set_xticklabels(df["model"], rotation=25, ha="right")
+
+        ymax = df["mean_epoch_time_sec"].max()
+        for bar, value in zip(bars, df["mean_epoch_time_sec"]):
+            if pd.notna(value):
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    value + 0.015 * ymax,
+                    f"{value:.1f}s",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
 
         plt.tight_layout()
         plt.savefig(
@@ -767,26 +1122,41 @@ def plot_model_comparison(
             dpi=300,
             bbox_inches="tight",
         )
-        plt.close()
+        plt.close(fig)
 
-    # --------------------------------------------------------
-    # 3. RAM و GPU Peak
-    # --------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 4. RAM & GPU Peak
+    # ------------------------------------------------------------------
     resource_columns = [
-        column for column in ["mean_ram_mb", "max_gpu_peak_mb"]
-        if column in df.columns
+        col
+        for col in ["mean_ram_mb", "max_gpu_peak_mb"]
+        if col in df.columns and df[col].notna().any()
     ]
-
     if resource_columns:
         ax = df.set_index("model")[resource_columns].plot(
             kind="bar",
             figsize=(11, 5),
+            edgecolor="white",
+            linewidth=0.5,
         )
-
-        ax.set_title("Memory Consumption Comparison")
+        ax.set_title("Memory Consumption Comparison", fontsize=12, pad=12)
         ax.set_xlabel("Model")
         ax.set_ylabel("Memory (MB)")
         ax.tick_params(axis="x", rotation=25)
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+
+        # اضافه کردن لیبل مقادیر روی هر ستون
+        for container in ax.containers:
+            ax.bar_label(
+                container,
+                fmt="%.0f",  # یا '%.1f' برای یک رقم اعشار
+                padding=3,  # فاصله متن تا بالای ستون
+                fontsize=8,
+                rotation=0,  # در صورت بلند بودن اعداد می‌توانید 45 بگذارید
+            )
+
+        # افزایش 10 درصدی سقف محور Y برای جلوگیری از بریده شدن لیبل‌های بالاترین ستون
+        ax.margins(y=0.12)
 
         plt.tight_layout()
         plt.savefig(
@@ -794,40 +1164,46 @@ def plot_model_comparison(
             dpi=300,
             bbox_inches="tight",
         )
-        plt.close()
+        plt.close(ax.get_figure())
 
-    # --------------------------------------------------------
-    # 4. معیارهای XAI
-    # --------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # 5. XAI Metrics (only if meaningful data exists)
+    # ------------------------------------------------------------------
     xai_columns = [
-        column for column in [
-            "IoU_mean",
-            "Dice_mean",
-            "SoftIoU_mean",
-            "SoftDice_mean",
-            "SSIM_mean",
+        col for col in [
+            "IoU_mean", "Dice_mean", "SoftIoU_mean", "SoftDice_mean", "SSIM_mean"
         ]
-        if column in df.columns
+        if col in df.columns and df[col].notna().any()
     ]
-
     if xai_columns:
-        ax = df.set_index("model")[xai_columns].plot(
-            kind="bar",
-            figsize=(13, 6),
-        )
-
+        ax = df.set_index("model")[xai_columns].plot(kind="bar", figsize=(13, 6))
         ax.set_title("XAI Heatmap vs Medical Annotation Comparison")
         ax.set_xlabel("Model")
         ax.set_ylabel("Score")
         ax.set_ylim(0, 1.05)
         ax.tick_params(axis="x", rotation=25)
-
         plt.tight_layout()
         plt.savefig(
             output_dir / "comparison_xai_metrics.png",
             dpi=300,
             bbox_inches="tight",
         )
-        plt.close()
+        plt.close(ax.get_figure())
 
-    print(f"Comparison plots saved in: {output_dir.resolve()}")
+    # ------------------------------------------------------------------
+    # 6 & 7. Radar + Trade-off
+    # ------------------------------------------------------------------
+    plot_radar_comparison(model_summary_df=df, output_dir=output_dir)
+    plot_tradeoff_bubble(model_summary_df=df, output_dir=output_dir)
+
+    # ------------------------------------------------------------------
+    # 8. XAI per-image distributions
+    # ------------------------------------------------------------------
+    if xai_per_image_df is not None and not xai_per_image_df.empty:
+        plot_xai_distribution(xai_per_image_df=xai_per_image_df, output_dir=output_dir)
+
+    print(
+        f"All comparison plots successfully saved in: {output_dir.resolve()}",
+        flush=True,
+    )

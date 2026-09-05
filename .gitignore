@@ -1,0 +1,17 @@
+# Byte-compiled / cache
+__pycache__/
+*.pyc
+
+# Model weights & large checkpoints
+*.pth
+*.pt
+
+# Datasets & heavy folders
+dataset/
+ground_truth/
+model_comparison_results/
+
+# Outputs / Heatmaps / Images (اختیاری: اگر نمی‌خواهید صدها تصویر خروجی آپلود شود)
+**/gradcam_*/
+*.png
+*.jpg
