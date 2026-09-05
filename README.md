@@ -29,46 +29,47 @@ The following models are included:
 - Heatmap saving as image and NumPy array
 - Multi-dementional model comparison 
 
-## Project Structure
+##  Supported Models
+
+| Category | Backbones / Models |
+| :--- | :--- |
+| **Vision Transformers** | ViT-B/16, Swin-Tiny |
+| **Modern & Lightweight CNNs** | ConvNeXt-Tiny, EfficientNetV2-Medium, MobileNetV3-Large, DenseNet-121 |
+| **Classical Baselines** | ResNet-18, ResNet-50 |
+| **Prototypical Networks (ProtoNet)** | ProtoNet-ResNet18, ProtoNet-ResNet50, ProtoNet-ConvNeXt-Tiny |
+| **Real-Time Detection Family** | YOLOv8n-cls |
+
+
+
+## 📁 Repository Structure
 ```text
-├──LICENSE
-├──.gitignore
-├──README.md
-├──requirements.txt
-├──MVconfig.yaml
-├──model_comparison_config.yaml
-├──data_split_revised.py
-├──data_split.py
-├──common_utils.py
-├──compare_models_script.py
-├──model_comparison_utils.py
-├──proto_specified_utils.py
-├──run_all_models.py
-├──ViTB16
-    ├──base-model-VITB16.py
-├──convnexttiny
-    ├──base-model-convnexttiny.py
-├──mobilenetv3large
-    ├──base-model-mobilenetv3large.py
-├──protonet-with-convnexttiny-backbone
-    ├──base-model-protonet-with-convnexttiny-backbone.py
-├──protonet-with-resnet18-backbone
-    ├──base-model-protonet-with-resnet18-backbone.py
-├──protonet-with-resnet50-backbone
-    ├──base-model-protonet-with-resnet50-backbone.py
-├──resnet18
-    ├──base-model-resnet18.py
-├──resnet50
-    ├──base-model-resnet50.py
-├──swintiny
-    ├──base-model-swintiny.py
-├──densenet121
-    ├──base-model-densenet.py
-├──efficientnetv2m
-    ├──base-model-efficientnet.py
-├──YOLOv8
-    ├──base-model-YOLOv8.py
-└──dataset
-    ├──SalmonScan
-    └──SalmonScan_Split
-```
+├── LICENSE
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── MVconfig.yaml                      # Global pipeline configuration
+├── model_comparison_config.yaml       # Multi-model evaluation settings
+├── data_split.py                      # Initial train/val/test splitter
+├── data_split_revised.py              # Stratified / updated dataset split
+├── common_utils.py                    # Training loops, metrics & logging
+├── model_comparison_utils.py          # Benchmark comparison tools
+├── proto_specified_utils.py           # ProtoNet distance & loss modules
+├── compare_models_script.py           # Comparative evaluation runner
+├── run_all_models.py                  # Master batch training script
+│
+├── ViTB16/                            # ViT-B/16 scripts
+├── convnexttiny/                      # ConvNeXt-Tiny scripts
+├── mobilenetv3large/                  # MobileNetV3-Large scripts
+├── densenet121/                       # DenseNet-121 scripts
+├── efficientnetv2m/                   # EfficientNetV2-M scripts
+├── resnet18/                          # ResNet-18 scripts
+├── resnet50/                          # ResNet-50 scripts
+├── swintiny/                          # Swin-Tiny scripts
+├── YOLOv8/                            # YOLOv8n classification scripts
+├── protonet-with-resnet18-backbone/   # ProtoNet + ResNet-18
+├── protonet-with-resnet50-backbone/   # ProtoNet + ResNet-50
+├── protonet-with-convnexttiny-backbone/ # ProtoNet + ConvNeXt-Tiny
+└── dataset/                           # Dataset directory (Ignored in Git)
+    ├── SalmonScan/                    # Raw images
+    └── SalmonScan_Split/              # Processed train/val/test splits```
+    
