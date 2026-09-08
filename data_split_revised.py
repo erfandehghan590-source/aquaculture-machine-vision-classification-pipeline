@@ -264,6 +264,12 @@ def main():
         # 2. Add only Train-related Augmented images
         # ----------------------------------------------------
 
+         # ----------------------------------------------------
+        # 2. Route Augmented images to the SAME split as
+        #    their parent (no leakage, since the parent
+        #    itself is only in one split).
+        # ----------------------------------------------------
+
         augmented_dir = (
             SOURCE_DIR
             / AUGMENTED_FOLDER_NAME
@@ -273,8 +279,8 @@ def main():
         augmented_images = get_images(augmented_dir)
 
         augmented_train_count = 0
-        augmented_val_test_ignored_count = 0
-        augmented_unmatched_count = 0
+        augmented_val_count = 0
+        augmented_test_count = 0
         augmented_unmatched_count = 0
 
         for augmented_image in augmented_images:
@@ -289,32 +295,43 @@ def main():
                 )
                 augmented_train_count += 1
 
-            elif (
-                parent_id in val_parent_ids
-                or parent_id in test_parent_ids
-            ):
-                # Do not copy these files.
-                # They would cause leakage into evaluation sets.
-                augmented_val_test_ignored_count += 1
+            elif parent_id in val_parent_ids:
+                copy_image(
+                    augmented_image,
+                    OUTPUT_DIR / VAL_SPLIT_NAME / class_name
+                )
+                augmented_val_count += 1
+
+            elif parent_id in test_parent_ids:
+                copy_image(
+                    augmented_image,
+                    OUTPUT_DIR / TEST_SPLIT_NAME / class_name
+                )
+                augmented_test_count += 1
 
             else:
                 # Parent ID could not be matched to any Raw image.
                 augmented_unmatched_count += 1
 
-        summary[class_name] = {
+            summary[class_name] = {
             "raw_total": len(raw_images),
             "raw_train": len(train_raw),
             "raw_val": len(val_raw),
             "raw_test": len(test_raw),
             "aug_total": len(augmented_images),
             "aug_train_added": augmented_train_count,
-            "aug_val_test_ignored": augmented_val_test_ignored_count,
+            "aug_val_added": augmented_val_count,
+            "aug_test_added": augmented_test_count,
             "aug_unmatched": augmented_unmatched_count,
             "final_train_total": (
                 len(train_raw) + augmented_train_count
             ),
-            "final_val_total": len(val_raw),
-            "final_test_total": len(test_raw),
+            "final_val_total": (
+                len(val_raw) + augmented_val_count
+            ),
+            "final_test_total": (
+                len(test_raw) + augmented_test_count
+            ),
         }
 
     # --------------------------------------------------------
@@ -324,6 +341,8 @@ def main():
     print("\n" + "=" * 70)
     print("✅ Dataset split completed successfully")
     print("=" * 70)
+
+
 
     for class_name, stats in summary.items():
         print(f"\n📊 Class: {class_name}")
@@ -335,15 +354,10 @@ def main():
         print(f"Raw Test                   : {stats['raw_test']}")
         print(f"Augmented total            : {stats['aug_total']}")
         print(f"Augmented added to Train  : {stats['aug_train_added']}")
-        print(
-            "Augmented ignored "
-            f"(Val/Test parents)       : "
-            f"{stats['aug_val_test_ignored']}"
-        )
-        print(
-            "Augmented unmatched       : "
-            f"{stats['aug_unmatched']}"
-        )
+        print(f"Augmented added to Val     : {stats['aug_val_added']}")
+        print(f"Augmented added to Test    : {stats['aug_test_added']}")
+        print(f"Augmented unmatched        : {stats['aug_unmatched']}")
+        
         print(f"Final Train total          : {stats['final_train_total']}")
         print(f"Final Validation total     : {stats['final_val_total']}")
         print(f"Final Test total           : {stats['final_test_total']}")
