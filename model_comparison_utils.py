@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from skimage.metrics import structural_similarity as ssim
 from adjustText import adjust_text
+import torchvision.models as tv_models
+
 
 # ============================================================
 # 1. معیارهای مقایسه Heatmap
@@ -410,6 +412,68 @@ def summarize_training_log(
 
     return summary
 
+def get_model_weights_table(models_config: list, output_dir: Path = None, save_excel: bool = True) -> pd.DataFrame:
+    """
+    Reads weight_class directly from model_config string (e.g. 'MobileNet_V3_Large_Weights.DEFAULT')
+    and extracts metadata without manually maintaining mapping dicts.
+    """
+    records = []
+
+    for model in models_config:
+        weight_str = model.get("weight_class")
+        
+        default_weight = None
+        if weight_str:
+            try:
+                # تفکیک اسم کلاس وزن و ویژگی آن (مثلا MobileNet_V3_Large_Weights و DEFAULT)
+                enum_name, attr_name = weight_str.split(".")
+                weight_enum = getattr(tv_models, enum_name)
+                default_weight = getattr(weight_enum, attr_name)
+            except (AttributeError, ValueError):
+                default_weight = None
+
+        if default_weight is not None:
+            meta = default_weight.meta
+            metrics_dict = meta.get("_metrics", {})
+            first_dataset = next(iter(metrics_dict.keys()), "ImageNet-1K")
+            acc1 = metrics_dict.get(first_dataset, {}).get("acc@1", None)
+            acc5 = metrics_dict.get(first_dataset, {}).get("acc@5", None)
+
+            records.append({
+                "model_name": model.get("name"),
+                "weight_enum": str(default_weight),
+                "pretrain_dataset": first_dataset,
+                "pretrain_classes": len(meta.get("categories", [])),
+                "params_count": meta.get("num_params", None),
+                "min_input_size": str(meta.get("min_size", "N/A")),
+                "imagenet_top1_acc": acc1,
+                "imagenet_top5_acc": acc5,
+                "recipe_url": meta.get("recipe", "N/A"),
+            })
+        else:
+            records.append({
+                "model_name": model.get("name"),
+                "weight_enum": "Custom / Scratch / Non-TorchVision",
+                "pretrain_dataset": "None / Custom",
+                "pretrain_classes": None,
+                "params_count": None,
+                "min_input_size": None,
+                "imagenet_top1_acc": None,
+                "imagenet_top5_acc": None,
+                "recipe_url": None,
+            })
+
+    df = pd.DataFrame(records)
+
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        df.to_csv(output_dir / "models_pretrained_weights_info.csv", index=False, encoding="utf-8-sig")
+        if save_excel:
+            df.to_excel(output_dir / "models_pretrained_weights_info.xlsx", index=False)
+
+    return df
 
 def _safe_mean(epoch_data: list[dict[str, Any]], key: str) -> Optional[float]:
     values = [

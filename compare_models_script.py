@@ -4,6 +4,7 @@ import yaml
 from model_comparison_utils import (
     compare_models,
     plot_model_comparison,
+    get_model_weights_table
 )
 
 CLASS_NAMES = ["FreshFish","InfectedFish"]
@@ -332,6 +333,15 @@ if not ENABLE_XAI or (GT_FOLDER is not None and GT_FOLDER.is_dir()):
                 display(all_epochs_df)
         else:
             print("No epoch-level training logs found.")
+
+        # استخراج جدول مشخصات وزن‌ها و نمایش در نوت‌بوک
+        weights_info_df = get_model_weights_table(MODELS, output_dir=OUTPUT_DIR, save_excel=SAVE_EXCEL)
+
+        print("\n" + "=" * 80)
+        print("PRETRAINED WEIGHTS SPECIFICATIONS TABLE")
+        print("=" * 80)
+        display(weights_info_df)
+
 
         # ============================================================
         # Display XAI Per-Image Results (only if enabled)
