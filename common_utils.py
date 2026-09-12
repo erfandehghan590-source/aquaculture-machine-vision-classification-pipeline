@@ -101,7 +101,7 @@ def prepare_datasets(
     test_ratio: float = 0.1,
     seed: int = 42,
     batch_size: int = 32,
-    num_workers: int = 0,
+    num_workers: int = 2,
 ) -> dict[str, Any]:
     """
     ImageFolder را لود کرده، به train/val/test تقسیم می‌کند و DataLoader می‌سازد.
