@@ -3,8 +3,8 @@ DATA_ROOT_PRIMARY : "datasets/SalmonScan"
 DATA_ROOT_SPLITED : "datasets/SalmonScan_Split"
 DATA_SUBSET : "My augment"  # "Raw" یا "Augmented"
 IMG_SIZE : 224
-BATCH_SIZE : 8
-NUM_EPOCHS : 1
+BATCH_SIZE : 32
+NUM_EPOCHS : 30
 LEARNING_RATE : 1e-4
 VAL_RATIO : 0.2
 TEST_RATIO : 0.2
