@@ -4,18 +4,18 @@ import time
 from pathlib import Path
 
 SCRIPTS_TO_RUN = [
-    "base-model-convnexttiny.py",
-    "base-model-densenet.py",
-    "base-model-efficientnet.py",
-    "base-model-mobilenetv3large.py",
-    "base-model-protonet-with-convnexttiny-backbone.py",
-    "base-model-protonet-with-resnet18-backbone.py",
-    "base-model-protonet-with-resnet50-backbone.py",
+#   "base-model-convnexttiny.py",
+#    "base-model-densenet.py",
+#    "base-model-efficientnet.py",
+#    "base-model-mobilenetv3large.py",
+#    "base-model-protonet-with-convnexttiny-backbone.py",
+#   "base-model-protonet-with-resnet18-backbone.py",
+#    "base-model-protonet-with-resnet50-backbone.py",
     "base-model-resnet18.py",
     "base-model-resnet50.py",
-    "base-model-swintiny.py",
-    "base-model-VITB16.py",
-    "base-model-YOLOv8.py"
+#    "base-model-swintiny.py",
+#    "base-model-VITB16.py",
+#    "base-model-YOLOv8.py"
 ]
 
 script_counter = 0

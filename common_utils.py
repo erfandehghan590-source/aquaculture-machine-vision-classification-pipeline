@@ -37,12 +37,19 @@ def set_seed(seed: int = 42) -> None:
 def load_config(config_path: str | Path = "MVconfig.yaml") -> dict[str, Any]:
     """فایل YAML تنظیمات را می‌خواند."""
     config_path = Path(config_path)
+
+    if not config_path.is_absolute():
+        config_path = Path(__file__).resolve().parent / config_path
+
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path.resolve()}")
+
     with config_path.open("r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
+
     if not isinstance(config, dict):
         raise ValueError("YAML config must be a dictionary.")
+
     return config
 
 

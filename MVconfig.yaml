@@ -1,10 +1,10 @@
-MODE: "eval"
-DATA_ROOT_PRIMARY : "C:/Users/conceptD/Desktop/apply resume and research/research/aquaculture MV/ours/implimentations/dataset/SalmonScan"
-DATA_ROOT_SPLITED : "C:/Users/conceptD/Desktop/apply resume and research/research/aquaculture MV/ours/implimentations/dataset/SalmonScan_Split"
+MODE: "train"
+DATA_ROOT_PRIMARY : "datasets/SalmonScan"
+DATA_ROOT_SPLITED : "datasets/SalmonScan_Split"
 DATA_SUBSET : "My augment"  # "Raw" یا "Augmented"
 IMG_SIZE : 224
 BATCH_SIZE : 8
-NUM_EPOCHS : 10
+NUM_EPOCHS : 1
 LEARNING_RATE : 1e-4
 VAL_RATIO : 0.2
 TEST_RATIO : 0.2

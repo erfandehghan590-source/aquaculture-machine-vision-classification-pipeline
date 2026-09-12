@@ -47,7 +47,7 @@ CONFIG_PATH = "MVconfig.yaml"
 config = load_config(CONFIG_PATH)
 
 MODE = config['MODE']
-DATA_ROOT = config["DATA_ROOT_SPLITED"]
+DATA_ROOT = Path(__file__).resolve().parent.parent / config["DATA_ROOT_SPLITED"]
 DATA_SUBSET = config["DATA_SUBSET"]
 IMG_SIZE = config["IMG_SIZE"]
 BATCH_SIZE = config["BATCH_SIZE"]
