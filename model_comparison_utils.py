@@ -1082,7 +1082,7 @@ def plot_model_comparison(
                         f"{val:.3f}",
                         ha="center",
                         va="bottom",
-                        fontsize=7,
+                        fontsize=10,
                         rotation=90,
                     )
 
@@ -1138,7 +1138,7 @@ def plot_model_comparison(
                         f"{val:.3f}",
                         ha="center",
                         va="bottom",
-                        fontsize=7,
+                        fontsize=10,
                         rotation=90,
                     )
 
@@ -1177,7 +1177,7 @@ def plot_model_comparison(
                     f"{value:.1f}s",
                     ha="center",
                     va="bottom",
-                    fontsize=8,
+                    fontsize=10,
                 )
 
         plt.tight_layout()
@@ -1215,7 +1215,7 @@ def plot_model_comparison(
                 container,
                 fmt="%.0f",  # یا '%.1f' برای یک رقم اعشار
                 padding=3,  # فاصله متن تا بالای ستون
-                fontsize=8,
+                fontsize=10,
                 rotation=0,  # در صورت بلند بودن اعداد می‌توانید 45 بگذارید
             )
 
