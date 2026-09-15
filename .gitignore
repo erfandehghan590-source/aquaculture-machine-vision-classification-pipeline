@@ -7,11 +7,11 @@ __pycache__/
 *.pt
 
 # Datasets & heavy folders
-dataset/
+datasets/
 ground_truth/
 model_comparison_results/
 
-# Outputs / Heatmaps / Images (اختیاری: اگر نمی‌خواهید صدها تصویر خروجی آپلود شود)
+# Outputs / Heatmaps / Images
 **/gradcam_*/
 *.png
 *.jpg
