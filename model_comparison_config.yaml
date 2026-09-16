@@ -59,23 +59,7 @@ models:
     heatmap_folder: "convnexttiny/gradcam_CONVNEXT_TINY_augmented_infected_predictions"
 
   # --------------------------------------------------------------------------
-  # 7. ProtoNet + ResNet50 Backbone (Few-Shot Episodic Learning)
-  # --------------------------------------------------------------------------
-  - name: "ProtoNet-ResNet50"
-    weight_class: "ResNet50_Weights.DEFAULT"
-    log_paths: "protonet-with-resnet50-backbone/logs/*protonet*resnet50*.jsonl"
-    heatmap_folder: "protonet-with-resnet50-backbone/gradcam_PROTONET_RESNET50_augmented_infected_predictions"
-
-  # --------------------------------------------------------------------------
-  # 8. ProtoNet + ResNet18 Backbone (Few-Shot Episodic Learning)
-  # --------------------------------------------------------------------------
-  - name: "ProtoNet-ResNet18"
-    weight_class: "ResNet18_Weights.DEFAULT"
-    log_paths: "protonet-with-resnet18-backbone/logs/*protonet*resnet18*.jsonl"
-    heatmap_folder: "protonet-with-resnet18-backbone/gradcam_PROTONET_RESNET18_augmented_infected_predictions"
-
-  # --------------------------------------------------------------------------
-  # 9. EfficientNetV2-M (High-Efficiency Scaling CNN)
+  # 7. EfficientNetV2-M (High-Efficiency Scaling CNN)
   # --------------------------------------------------------------------------
   - name: "EfficientNetV2M"
     weight_class: "EfficientNet_V2_M_Weights.DEFAULT"
@@ -83,7 +67,7 @@ models:
     heatmap_folder: "efficientnetv2m/gradcam_EFFICIENTNETV2M_augmented_infected_predictions"
 
   # --------------------------------------------------------------------------
-  # 10. DenseNet121 (Dense Connectivity CNN)
+  # 8. DenseNet121 (Dense Connectivity CNN)
   # --------------------------------------------------------------------------
   - name: "DenseNet121"
     weight_class: "DenseNet121_Weights.DEFAULT"
@@ -91,15 +75,7 @@ models:
     heatmap_folder: "densenet121/gradcam_DenseNet121_augmented_infected_predictions"
 
   # --------------------------------------------------------------------------
-  # 11. ProtoNet + ConvNeXt-Tiny Backbone (Few-Shot Episodic Learning)
-  # --------------------------------------------------------------------------
-  - name: "ProtoNet-ConvNeXt-Tiny"
-    weight_class: "ConvNeXt_Tiny_Weights.DEFAULT"
-    log_paths: "protonet-with-convnexttiny-backbone/logs/*protonet*convnext*.jsonl"
-    heatmap_folder: "protonet-with-convnexttiny-backbone/gradcam_PROTONET_CONVNEXT_TINY_augmented_infected_predictions"
-
-  # --------------------------------------------------------------------------
-  # 12. YOLOv8 Classification (Real-Time Anchor-Free Framework)
+  # 9. YOLOv8 Classification (Real-Time Anchor-Free Framework)
   # --------------------------------------------------------------------------
   - name: "YOLOv8"
     weight_class: null
