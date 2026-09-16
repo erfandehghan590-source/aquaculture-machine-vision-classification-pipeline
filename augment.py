@@ -14,24 +14,17 @@ import yaml
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
-PERTURBATIONS: dict[str, list[Any]] = {
-    "gaussian_blur": [1.0, 2.0, 3.0],
-    "gaussian_noise": [0.0025, 0.01, 0.025],
-    "brightness_reduction": [0.85, 0.70, 0.55],
-    "contrast_reduction": [0.85, 0.70, 0.55],
-    "haze": [0.15, 0.30, 0.45],
+PERTURBATIONS = {
+    "gaussian_blur": [1.5, 3.0],
+    "gaussian_noise": [0.01, 0.03],
+    "brightness_reduction": [0.5, 0.7],
+    "contrast_reduction": [0.6, 0.8],
     "motion_blur": [
         {"kernel_size": 7, "angle": 0},
-        {"kernel_size": 7, "angle": 45},
-        {"kernel_size": 7, "angle": 90},
-        {"kernel_size": 15, "angle": 0},
-        {"kernel_size": 15, "angle": 45},
-        {"kernel_size": 15, "angle": 90},
-        {"kernel_size": 23, "angle": 0},
-        {"kernel_size": 23, "angle": 45},
-        {"kernel_size": 23, "angle": 90},
+        {"kernel_size": 11, "angle": 45},
+        {"kernel_size": 9, "angle": 90},
     ],
-    "rotation": [-15, -10, -5, 0, 5, 10, 15],
+    "rotation": [-20, -10, 10, 20],
     "mirror": ["x", "y"],
 }
 

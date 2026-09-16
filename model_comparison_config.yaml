@@ -1,67 +1,107 @@
+# ==============================================================================
+# پیکربندی جامع ارزیابی و بنچمارک مدل‌های بینایی ماشین (Aquaculture MV)
+# ==============================================================================
+
 root_dir: "C:/Users/conceptD/Desktop/apply resume and research/research/aquaculture MV/ours/implimentations/"
+output_dir: "model_comparison_results"
 enable_xai: false
 gt_folder: "ground_truth"
-output_dir: "model_comparison_results"
 threshold: 0.65
 save_excel: true
 
 models:
+  # --------------------------------------------------------------------------
+  # 1. MobileNetV3-Large (Lightweight CNN Baseline)
+  # --------------------------------------------------------------------------
   - name: "MobileNetV3-Large"
     weight_class: "MobileNet_V3_Large_Weights.DEFAULT"
-    log_path: "mobilenetv3large/mobilenet_v3_large_training_log_augmented.jsonl"
+    log_paths: "mobilenetv3large/logs/*mobilenet*v3*large*.jsonl"
     heatmap_folder: "mobilenetv3large/gradcam_MOBILENET_V3_LARGE_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 2. ResNet50 (Standard Deep Residual CNN)
+  # --------------------------------------------------------------------------
   - name: "ResNet50"
     weight_class: "ResNet50_Weights.DEFAULT"
-    log_path: "resnet50/resnet50_training_log_augmented.jsonl"
+    log_paths: "resnet50/logs/*resnet50*.jsonl"
     heatmap_folder: "resnet50/gradcam_RESNET50_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 3. ResNet18 (Compact Residual CNN)
+  # --------------------------------------------------------------------------
   - name: "ResNet18"
     weight_class: "ResNet18_Weights.DEFAULT"
-    log_path: "resnet18/resnet18_training_log_augmented.jsonl"
+    log_paths: "resnet18/logs/*resnet18*.jsonl"
     heatmap_folder: "resnet18/gradcam_RESNET18_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 4. ViT-B16 (Vision Transformer Baseline)
+  # --------------------------------------------------------------------------
   - name: "ViT-B16"
     weight_class: "ViT_B_16_Weights.DEFAULT"
-    log_path: "ViTB16/vit_training_log_augmented.jsonl"
+    log_paths: "ViTB16/logs/*vit*.jsonl"
     heatmap_folder: "ViTB16/gradcam_VIT_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 5. Swin-Tiny (Hierarchical Vision Transformer)
+  # --------------------------------------------------------------------------
   - name: "Swin-Tiny"
     weight_class: "Swin_T_Weights.DEFAULT"
-    log_path: "swintiny/swin_tiny_training_log_augmented.jsonl"
+    log_paths: "swintiny/logs/*swin*tiny*.jsonl"
     heatmap_folder: "swintiny/gradcam_SWIN_TINY_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 6. ConvNeXt-Tiny (Modernized Pure-CNN)
+  # --------------------------------------------------------------------------
   - name: "ConvNeXt-Tiny"
     weight_class: "ConvNeXt_Tiny_Weights.DEFAULT"
-    log_path: "convnexttiny/convnext_tiny_training_log_augmented.jsonl"
+    log_paths: "convnexttiny/logs/*convnext*tiny*.jsonl"
     heatmap_folder: "convnexttiny/gradcam_CONVNEXT_TINY_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 7. ProtoNet + ResNet50 Backbone (Few-Shot Episodic Learning)
+  # --------------------------------------------------------------------------
   - name: "ProtoNet-ResNet50"
     weight_class: "ResNet50_Weights.DEFAULT"
-    log_path: "protonet-with-resnet50-backbone/protonet_resnet50_training_log_augmented.jsonl"
+    log_paths: "protonet-with-resnet50-backbone/logs/*protonet*resnet50*.jsonl"
     heatmap_folder: "protonet-with-resnet50-backbone/gradcam_PROTONET_RESNET50_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 8. ProtoNet + ResNet18 Backbone (Few-Shot Episodic Learning)
+  # --------------------------------------------------------------------------
   - name: "ProtoNet-ResNet18"
     weight_class: "ResNet18_Weights.DEFAULT"
-    log_path: "protonet-with-resnet18-backbone/protonet_resnet18_training_log_augmented.jsonl"
+    log_paths: "protonet-with-resnet18-backbone/logs/*protonet*resnet18*.jsonl"
     heatmap_folder: "protonet-with-resnet18-backbone/gradcam_PROTONET_RESNET18_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 9. EfficientNetV2-M (High-Efficiency Scaling CNN)
+  # --------------------------------------------------------------------------
   - name: "EfficientNetV2M"
     weight_class: "EfficientNet_V2_M_Weights.DEFAULT"
-    log_path: "efficientnetv2m/efficientnetV2M_training_log_augmented.jsonl"
+    log_paths: "efficientnetv2m/logs/*efficientnet*v2*m*.jsonl"
     heatmap_folder: "efficientnetv2m/gradcam_EFFICIENTNETV2M_augmented_infected_predictions"
-    
+
+  # --------------------------------------------------------------------------
+  # 10. DenseNet121 (Dense Connectivity CNN)
+  # --------------------------------------------------------------------------
   - name: "DenseNet121"
     weight_class: "DenseNet121_Weights.DEFAULT"
-    log_path: "densenet121/densenet121_training_log_augmented.jsonl"
+    log_paths: "densenet121/logs/*densenet121*.jsonl"
     heatmap_folder: "densenet121/gradcam_DenseNet121_augmented_infected_predictions"
 
+  # --------------------------------------------------------------------------
+  # 11. ProtoNet + ConvNeXt-Tiny Backbone (Few-Shot Episodic Learning)
+  # --------------------------------------------------------------------------
   - name: "ProtoNet-ConvNeXt-Tiny"
     weight_class: "ConvNeXt_Tiny_Weights.DEFAULT"
-    log_path: "protonet-with-convnexttiny-backbone/protonet_convnext_tiny_training_log_augmented.jsonl"
+    log_paths: "protonet-with-convnexttiny-backbone/logs/*protonet*convnext*.jsonl"
     heatmap_folder: "protonet-with-convnexttiny-backbone/gradcam_PROTONET_CONVNEXT_TINY_augmented_infected_predictions"
-  
+
+  # --------------------------------------------------------------------------
+  # 12. YOLOv8 Classification (Real-Time Anchor-Free Framework)
+  # --------------------------------------------------------------------------
   - name: "YOLOv8"
-    weight_class: null  # یا کلاً این فیلد حذف شود
-    log_path: "YOLOv8/yolov8n_cls_training_log_augmented.jsonl"
+    weight_class: null
+    log_paths: "YOLOv8/logs/*yolo*cls*.jsonl"
     heatmap_folder: "YOLOv8/gradcam_yolov8n_cls_augmented_infected_predictions"

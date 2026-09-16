@@ -17,9 +17,15 @@ from PIL import Image
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torchvision import datasets, transforms
-from sklearn.metrics import confusion_matrix, f1_score
+from sklearn.metrics import confusion_matrix, f1_score, ConfusionMatrixDisplay
+import time
+import torch.optim as optim
+from sklearn.model_selection import KFold, StratifiedKFold
+from collections import defaultdict
+import glob
+
 
 # ============================================================
 # 1. Seed و Config
@@ -63,6 +69,21 @@ def get_device() -> torch.device:
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
+class SampleListDataset(torch.utils.data.Dataset):
+    """دیتاست lazy از لیست (path, label) با transform آنلاین."""
+    def __init__(self, samples: list[tuple[str, int]], transform=None):
+        self.samples = samples
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path, label = self.samples[idx]
+        img = Image.open(path).convert("RGB")
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, label
 
 def get_train_transform(img_size: int = 224) -> transforms.Compose:
     return transforms.Compose([
@@ -104,38 +125,38 @@ def prepare_datasets(
     num_workers: int = 2,
 ) -> dict[str, Any]:
     """
-    ImageFolder را لود کرده، به train/val/test تقسیم می‌کند و DataLoader می‌سازد.
-
-    Returns
-    -------
-    dict با کلیدهای:
-        full_dataset, train_dataset, val_dataset, test_dataset,
-        train_loader, val_loader, test_loader,
-        class_names, infected_class_idx (اگر نام کلاس داده شود باید جداگانه ست شود)
+    ImageFolder را لود کرده و به صورت stratified به train/val/test تقسیم می‌کند.
     """
     data_dir = Path(data_dir)
     full_dataset = datasets.ImageFolder(root=str(data_dir))
     class_names = full_dataset.classes
+    targets = full_dataset.targets
 
     total_size = len(full_dataset)
     test_size = int(test_ratio * total_size)
     val_size = int(val_ratio * total_size)
     train_size = total_size - val_size - test_size
 
-    train_dataset, val_dataset, test_dataset = random_split(
-        full_dataset,
-        [train_size, val_size, test_size],
-        generator=torch.Generator().manual_seed(seed),
+    # stratified split (با کمک sklearn)
+    from sklearn.model_selection import train_test_split
+
+    indices = list(range(total_size))
+    train_val_idx, test_idx = train_test_split(
+        indices, test_size=test_size, stratify=targets, random_state=seed
+    )
+    train_idx, val_idx = train_test_split(
+        train_val_idx,
+        test_size=val_size / (train_size + val_size),
+        stratify=[targets[i] for i in train_val_idx],
+        random_state=seed,
     )
 
-    # deepcopy تا transform مستقل داشته باشند
-    train_dataset.dataset = copy.deepcopy(full_dataset)
-    val_dataset.dataset = copy.deepcopy(full_dataset)
-    test_dataset.dataset = copy.deepcopy(full_dataset)
+    train_tf = get_train_transform(img_size)
+    eval_tf = get_test_transform(img_size)
 
-    train_dataset.dataset.transform = get_train_transform(img_size)
-    val_dataset.dataset.transform = get_test_transform(img_size)
-    test_dataset.dataset.transform = get_test_transform(img_size)
+    train_dataset = FoldDataset(full_dataset, train_idx, transform=train_tf)
+    val_dataset = FoldDataset(full_dataset, val_idx, transform=eval_tf)
+    test_dataset = FoldDataset(full_dataset, test_idx, transform=eval_tf)
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
@@ -157,7 +178,6 @@ def prepare_datasets(
         "test_loader": test_loader,
         "class_names": class_names,
     }
-
 
 # ============================================================
 # 4. مانیتورینگ منابع
@@ -286,6 +306,93 @@ def evaluate(
     )
 
     return epoch_loss, epoch_acc, all_labels, all_preds
+
+@torch.no_grad()
+def evaluate_ensemble(
+    model_builder_fn,          # تابع ساخت مدل خالی (مثلاً model_builder_fn(num_classes))
+    weight_paths: list[Path],  # لیست مسیرهای فایل‌های وزن فولدها (fold1 تا foldK)
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    num_classes: int = 2
+) -> tuple[float, float, list, list]:
+    """
+    اجرای ارزیابی به روش Ensemble (میانگین‌گیری Logits) روی تمام فولدها.
+    """
+    # ۱) لود کردن تمام مدل‌ها در حافظه (برای سرعت بالا و عدم خواندن مکرر دیسک)
+    models = []
+    print(f"[ensemble] Loading {len(weight_paths)} fold models to {device}...", flush=True)
+    for idx, wpath in enumerate(weight_paths, start=1):
+        model = model_builder_fn(num_classes).to(device)
+        # لود کردن وزن‌ها با متد بهینه‌شده قبلی
+        load_model_weights(model=model, model_save_path=wpath, device=device)
+        model.eval()
+        models.append(model)
+        print(f" -> Model for Fold {idx} loaded successfully.", flush=True)
+
+    running_loss = 0.0
+    running_corrects = 0
+    total = 0
+    all_labels: list = []
+    all_preds: list = []
+
+    num_batches = len(loader)
+    print(f"[ensemble] Evaluation started. Num batches: {num_batches}", flush=True)
+
+    # ۲) پیمایش دسته‌ها (Batches)
+    for batch_idx, (inputs, labels) in enumerate(loader, start=1):
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        batch_size = inputs.size(0)
+
+        # ایجاد یک تنسور خالی برای تجمیع logits از تمام مدل‌ها
+        # ابعاد: [Batch_Size, Num_Classes]
+        ensemble_logits = torch.zeros((batch_size, num_classes), device=device)
+
+        # گرفتن خروجی از تک‌تک مدل‌ها و جمع کردن آن‌ها
+        for model in models:
+            outputs = model(inputs)
+            ensemble_logits += outputs
+
+        # میانگین‌گیری logits
+        ensemble_logits /= len(models)
+
+        # محاسبه Loss بر اساس logits میانگین
+        loss = criterion(ensemble_logits, labels)
+        
+        # پیش‌بینی نهایی بر اساس رای تجمیعی
+        _, preds = torch.max(ensemble_logits, 1)
+
+        running_loss += loss.item() * batch_size
+        running_corrects += torch.sum(preds == labels).item()
+        total += batch_size
+
+        all_labels.extend(labels.cpu().numpy().tolist())
+        all_preds.extend(preds.cpu().numpy().tolist())
+
+        if batch_idx % max(1, num_batches // 5) == 0 or batch_idx == num_batches:
+            print(
+                f"[ensemble] Batch {batch_idx}/{num_batches} done. "
+                f"loss={loss.item():.4f}",
+                flush=True
+            )
+
+    epoch_loss = running_loss / max(total, 1)
+    epoch_acc = running_corrects / max(total, 1)
+
+    print(
+        f"[ensemble] Finished. Ensemble "
+        f"loss={epoch_loss:.4f}, acc={epoch_acc:.4f}",
+        flush=True
+    )
+
+    # برای جلوگیری از اشغال حافظه GPU مدل‌ها را حذف می‌کنیم
+    del models
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return epoch_loss, epoch_acc, all_labels, all_preds
+
 
 # ============================================================
 # 6. لاگ آموزش
@@ -777,17 +884,63 @@ def load_model_weights(
     model_save_path: str | Path,
     device: torch.device,
 ) -> nn.Module:
-    """بارگذاری وزن‌ها با سازگاری نسخه‌های مختلف PyTorch."""
+    """بارگذاری وزن‌ها با سازگاری نسخه‌های مختلف PyTorch + بررسی وجود فایل."""
     model_save_path = Path(model_save_path)
+    
     if not model_save_path.exists():
-        raise FileNotFoundError(f"Weights not found: {model_save_path}")
+        raise FileNotFoundError(
+            f"Weights not found: {model_save_path.resolve()}\n"
+            f"Make sure you have trained the model first (MODE=train) "
+            f"or the path is correct."
+        )
 
     try:
         state_dict = torch.load(
             model_save_path, map_location=device, weights_only=True
         )
     except TypeError:
+        # سازگاری با نسخه‌های قدیمی‌تر PyTorch
         state_dict = torch.load(model_save_path, map_location=device)
 
-    model.load_state_dict(state_dict)
+    # بررسی سازگاری کلیدها (اختیاری اما مفید)
+    model_keys = set(model.state_dict().keys())
+    weight_keys = set(state_dict.keys())
+    
+    missing = model_keys - weight_keys
+    unexpected = weight_keys - model_keys
+    
+    if missing:
+        print(f"[WARNING] Missing keys in weights: {list(missing)[:5]}...")
+    if unexpected:
+        print(f"[WARNING] Unexpected keys in weights: {list(unexpected)[:5]}...")
+
+    model.load_state_dict(state_dict, strict=False)  # strict=False برای تحمل اختلاف جزئی
+    model.to(device)
+    model.eval()
+    
+    print(f"[OK] Weights loaded successfully from: {model_save_path.resolve()}")
     return model
+
+def _extract_parent_id(filename: str) -> str:
+    """استخراج parent_id از نام فایل (raw یا augmented)."""
+    stem = Path(filename).stem
+    if "__" in stem:
+        return stem.split("__", 1)[0]
+    return stem
+
+
+# تعریف یک کلاس Subset ساده خارج از تابع برای حل دائمی مشکل Pickle در ویندوز
+class FoldDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset, indices, transform=None):
+        self.base_dataset = base_dataset
+        self.indices = indices
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        img, label = self.base_dataset[self.indices[idx]]
+        if self.transform:
+            img = self.transform(img)
+        return img, label

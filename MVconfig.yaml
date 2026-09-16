@@ -1,13 +1,17 @@
 MODE: "train"
+SEEDS: [42]
 DATA_ROOT_PRIMARY : "datasets/SalmonScan"
 DATA_ROOT_SPLITED : "datasets/SalmonScan_Split"
-DATA_SUBSET : "My augment"  # "Raw" یا "Augmented"
+DATA_SUBSET : "My augment"  # "Raw" or "Augmented" or "My augment"
 IMG_SIZE : 224
-BATCH_SIZE : 32
-NUM_EPOCHS : 30
+BATCH_SIZE : 16
+NUM_EPOCHS : 2
 LEARNING_RATE : 1e-4
-VAL_RATIO : 0.2
-TEST_RATIO : 0.2
+WEIGHT_DECAY : 1e-4
+TEST_RATIO : 0.20
 NUM_CLASSES : 2
 INFECTED_CLASS_NAME : "InfectedFish"
-XAI_ENABLE: false #true یا false
+XAI_ENABLE: false #true or false
+EMBEDDING_DIM : 256
+USE_KFOLD: true          # true or false
+N_SPLITS: 2

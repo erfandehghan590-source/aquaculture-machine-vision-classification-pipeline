@@ -51,12 +51,13 @@ The following models are included:
 ├── model_comparison_config.yaml       # Multi-model evaluation settings
 ├── data_split.py                      # Initial train/val/test splitter
 ├── data_split_revised.py              # Stratified / updated dataset split
+├── safe_clear_logs.py              # clean all .jsonl and .png in the project
 ├── common_utils.py                    # Training loops, metrics & logging
 ├── model_comparison_utils.py          # Benchmark comparison tools
 ├── proto_specified_utils.py           # ProtoNet distance & loss modules
 ├── compare_models_script.py           # Comparative evaluation runner
 ├── run_all_models.py                  # Master batch training script
-│
+├── training_runner.py                  # Main runner function called in each base-model
 ├── ViTB16/                            # ViT-B/16 scripts
 ├── convnexttiny/                      # ConvNeXt-Tiny scripts
 ├── mobilenetv3large/                  # MobileNetV3-Large scripts
@@ -69,7 +70,8 @@ The following models are included:
 ├── protonet-with-resnet18-backbone/   # ProtoNet + ResNet-18
 ├── protonet-with-resnet50-backbone/   # ProtoNet + ResNet-50
 ├── protonet-with-convnexttiny-backbone/ # ProtoNet + ConvNeXt-Tiny
-└── dataset/                           # Dataset directory (Ignored in Git)
+├── data_split_revised_results/ #data split info 
+└── datasets/                           # Dataset directory (Ignored in Git)
     ├── SalmonScan/                    # Raw images
     └── SalmonScan_Split/              # Processed train/val/test splits```
     
