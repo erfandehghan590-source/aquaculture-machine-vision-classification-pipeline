@@ -19,14 +19,6 @@ from common_utils import (
     get_ram_usage_mb, load_model_weights, save_gradcams_for_predicted_infected, plot_learning_curves,
 )
 
-from proto_specified_utils import(
-    train_one_epoch_proto,
-    compute_dataset_prototypes,
-    evaluate_proto,
-    save_gradcams_for_predicted_infected_proto,
-    )
-
-
 def run_single_seed(
     seed: int,
     config: dict,

@@ -11,10 +11,7 @@ from model_comparison_utils import (
 # ============================================================
 # 1. تنظیمات مسیرها و بارگذاری کانفیگ
 # ============================================================
-ROOT_DIR = Path(
-    "C:/Users/conceptD/Desktop/apply resume and research/"
-    "research/aquaculture MV/ours/implimentations/"
-)
+ROOT_DIR = Path(__file__).resolve().parent
 
 CONFIG_PATH = ROOT_DIR / "model_comparison_config.yaml"
 
