@@ -15,3 +15,4 @@ XAI_ENABLE: false #true or false
 EMBEDDING_DIM : 256
 USE_KFOLD: true          # true or false
 N_SPLITS: 5
+NUM_WORKERS : 2

@@ -15,16 +15,16 @@ import yaml
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
 PERTURBATIONS = {
-    "gaussian_blur": [1.5, 3.0],
-    "gaussian_noise": [0.01, 0.03],
-    "brightness_reduction": [0.5, 0.7],
-    "contrast_reduction": [0.6, 0.8],
+    "gaussian_blur": [2.2],
+    "gaussian_noise": [0.02],
+    "brightness_reduction": [0.6],
+    "contrast_reduction": [0.7],
     "motion_blur": [
         {"kernel_size": 7, "angle": 0},
         {"kernel_size": 11, "angle": 45},
         {"kernel_size": 9, "angle": 90},
     ],
-    "rotation": [-20, -10, 10, 20],
+    "rotation": [-10, 10],
     "mirror": ["x", "y"],
 }
 
