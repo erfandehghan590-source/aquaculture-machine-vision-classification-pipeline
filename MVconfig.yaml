@@ -1,4 +1,4 @@
-MODE: "eval"
+MODE: "train"
 SEEDS: [42]
 DATA_ROOT_PRIMARY : "datasets/SalmonScan"
 DATA_ROOT_SPLITED : "datasets/SalmonScan_Split"
