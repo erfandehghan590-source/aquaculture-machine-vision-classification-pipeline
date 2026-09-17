@@ -2,7 +2,7 @@
 ## SalmonScan Classification and Grad-CAM Analysis
 
 This project implements and compares multiple deep learning models for fish health image classification using the SalmonScan dataset.  
-It includes standard CNN/Transformer-based classifiers and ProtoNet-based models, with Grad-CAM visualization for infected fish predictions.
+It includes standard CNN/Transformer-based classifiers, with Grad-CAM visualization for infected fish predictions.
 
 ## Models
 The following models are included:
