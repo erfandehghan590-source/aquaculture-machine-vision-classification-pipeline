@@ -12,9 +12,6 @@ The following models are included:
 - ViT-B16
 - Swin-Tiny
 - ConvNeXt-Tiny
-- ProtoNet-ResNet50
-- ProtoNet-ResNet18
-- ProtoNet-ConvNeXt-Tiny
 - EfficientNetV2-medium
 - DenseNet 121
 - YOLOv8n classifier
@@ -36,7 +33,6 @@ The following models are included:
 | **Vision Transformers** | ViT-B/16, Swin-Tiny |
 | **Modern & Lightweight CNNs** | ConvNeXt-Tiny, EfficientNetV2-Medium, MobileNetV3-Large, DenseNet-121 |
 | **Classical Baselines** | ResNet-18, ResNet-50 |
-| **Prototypical Networks (ProtoNet)** | ProtoNet-ResNet18, ProtoNet-ResNet50, ProtoNet-ConvNeXt-Tiny |
 | **Real-Time Detection Family** | YOLOv8n-cls |
 
 
@@ -54,7 +50,6 @@ The following models are included:
 ├── safe_clear_logs.py              # clean all .jsonl and .png in the project
 ├── common_utils.py                    # Training loops, metrics & logging
 ├── model_comparison_utils.py          # Benchmark comparison tools
-├── proto_specified_utils.py           # ProtoNet distance & loss modules
 ├── compare_models_script.py           # Comparative evaluation runner
 ├── run_all_models.py                  # Master batch training script
 ├── training_runner.py                  # Main runner function called in each base-model
@@ -67,9 +62,6 @@ The following models are included:
 ├── resnet50/                          # ResNet-50 scripts
 ├── swintiny/                          # Swin-Tiny scripts
 ├── YOLOv8/                            # YOLOv8n classification scripts
-├── protonet-with-resnet18-backbone/   # ProtoNet + ResNet-18
-├── protonet-with-resnet50-backbone/   # ProtoNet + ResNet-50
-├── protonet-with-convnexttiny-backbone/ # ProtoNet + ConvNeXt-Tiny
 ├── data_split_revised_results/ #data split info 
 └── datasets/                           # Dataset directory (Ignored in Git)
     ├── SalmonScan/                    # Raw images
