@@ -25,7 +25,6 @@ PERTURBATIONS = {
         {"kernel_size": 9, "angle": 90},
     ],
     "rotation": [-10, 10],
-    "mirror": ["x", "y"],
 }
 
 
