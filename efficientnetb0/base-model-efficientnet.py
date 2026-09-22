@@ -21,8 +21,8 @@ from training_runner import run_single_seed
 CONFIG_PATH = "MVconfig.yaml"
 config = load_config(CONFIG_PATH)
 
-MODEL_NAME = "EfficientNetV2M"
-MODEL_TAG = "efficientnetV2M"
+MODEL_NAME = "EfficientNetB0"
+MODEL_TAG = "efficientnetB0"
 DEVICE = get_device()
 
 raw_seeds = config["SEEDS"]
@@ -31,9 +31,9 @@ SEEDS = [raw_seeds] if isinstance(raw_seeds, int) else raw_seeds
 # =====================================================================
 # Model Architecture Builder
 # =====================================================================
-def build_efficientnet_v2m_model(num_classes: int = 2) -> nn.Module:
-    """بارگذاری EfficientNetV2-M پیش‌آموزش‌دیده و تنظیم لایه طبقه‌بندی نهایی"""
-    model = models.efficientnet_v2_m(weights=models.EfficientNet_V2_M_Weights.DEFAULT)
+def build_efficientnet_b0_model(num_classes: int = 2) -> nn.Module:
+    """بارگذاری EfficientNetB0 پیش‌آموزش‌دیده و تنظیم لایه طبقه‌بندی نهایی"""
+    model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
     # در این مدل، لایه نهایی در classifier[1] قرار دارد
     in_features = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(in_features, num_classes)
@@ -54,7 +54,7 @@ def main():
         acc, loss = run_single_seed(
             seed=seed,
             config=config,
-            model_builder_fn=build_efficientnet_v2m_model,
+            model_builder_fn=build_efficientnet_b0_model,
             model_name=MODEL_NAME,
             model_tag=MODEL_TAG,
             script_dir=SCRIPT_DIR,

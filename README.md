@@ -12,7 +12,7 @@ The following models are included:
 - ViT-B16
 - Swin-Tiny
 - ConvNeXt-Tiny
-- EfficientNetV2-medium
+- EfficientNet-B0
 - DenseNet 121
 - YOLOv8n classifier
 
@@ -31,7 +31,7 @@ The following models are included:
 | Category | Backbones / Models |
 | :--- | :--- |
 | **Vision Transformers** | ViT-B/16, Swin-Tiny |
-| **Modern & Lightweight CNNs** | ConvNeXt-Tiny, EfficientNetV2-Medium, MobileNetV3-Large, DenseNet-121 |
+| **Modern & Lightweight CNNs** | ConvNeXt-Tiny, EfficientNet-B0, MobileNetV3-Large, DenseNet-121 |
 | **Classical Baselines** | ResNet-18, ResNet-50 |
 | **Real-Time Detection Family** | YOLOv8n-cls |
 
@@ -57,7 +57,7 @@ The following models are included:
 ├── convnexttiny/                      # ConvNeXt-Tiny scripts
 ├── mobilenetv3large/                  # MobileNetV3-Large scripts
 ├── densenet121/                       # DenseNet-121 scripts
-├── efficientnetv2m/                   # EfficientNetV2-M scripts
+├── efficientnetb0/                   # EfficientNet-B0 scripts
 ├── resnet18/                          # ResNet-18 scripts
 ├── resnet50/                          # ResNet-50 scripts
 ├── swintiny/                          # Swin-Tiny scripts

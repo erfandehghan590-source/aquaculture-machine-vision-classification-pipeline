@@ -16,7 +16,7 @@ models:
   - name: "MobileNetV3-Large"
     weight_class: "MobileNet_V3_Large_Weights.DEFAULT"
     log_paths: "mobilenetv3large/logs/*mobilenet*v3*large*.jsonl"
-    heatmap_folder: "mobilenetv3large/gradcam_MOBILENET_V3_LARGE_augmented_infected_predictions"
+    heatmap_folder: "mobilenetv3large/gradcams"
 
   # --------------------------------------------------------------------------
   # 2. ResNet50 (Standard Deep Residual CNN)
@@ -24,7 +24,7 @@ models:
   - name: "ResNet50"
     weight_class: "ResNet50_Weights.DEFAULT"
     log_paths: "resnet50/logs/*resnet50*.jsonl"
-    heatmap_folder: "resnet50/gradcam_RESNET50_augmented_infected_predictions"
+    heatmap_folder: "resnet50/gradcams"
 
   # --------------------------------------------------------------------------
   # 3. ResNet18 (Compact Residual CNN)
@@ -32,7 +32,7 @@ models:
   - name: "ResNet18"
     weight_class: "ResNet18_Weights.DEFAULT"
     log_paths: "resnet18/logs/*resnet18*.jsonl"
-    heatmap_folder: "resnet18/gradcam_RESNET18_augmented_infected_predictions"
+    heatmap_folder: "resnet18/gradcams"
 
   # --------------------------------------------------------------------------
   # 4. ViT-B16 (Vision Transformer Baseline)
@@ -40,7 +40,7 @@ models:
   - name: "ViT-B16"
     weight_class: "ViT_B_16_Weights.DEFAULT"
     log_paths: "ViTB16/logs/*vit*.jsonl"
-    heatmap_folder: "ViTB16/gradcam_VIT_augmented_infected_predictions"
+    heatmap_folder: "ViTB16/gradcams"
 
   # --------------------------------------------------------------------------
   # 5. Swin-Tiny (Hierarchical Vision Transformer)
@@ -48,7 +48,7 @@ models:
   - name: "Swin-Tiny"
     weight_class: "Swin_T_Weights.DEFAULT"
     log_paths: "swintiny/logs/*swin*tiny*.jsonl"
-    heatmap_folder: "swintiny/gradcam_SWIN_TINY_augmented_infected_predictions"
+    heatmap_folder: "swintiny/gradcams"
 
   # --------------------------------------------------------------------------
   # 6. ConvNeXt-Tiny (Modernized Pure-CNN)
@@ -56,15 +56,15 @@ models:
   - name: "ConvNeXt-Tiny"
     weight_class: "ConvNeXt_Tiny_Weights.DEFAULT"
     log_paths: "convnexttiny/logs/*convnext*tiny*.jsonl"
-    heatmap_folder: "convnexttiny/gradcam_CONVNEXT_TINY_augmented_infected_predictions"
+    heatmap_folder: "convnexttiny/gradcams"
 
   # --------------------------------------------------------------------------
-  # 7. EfficientNetV2-M (High-Efficiency Scaling CNN)
+  # 7. EfficientNetB0 (High-Efficiency Scaling CNN)
   # --------------------------------------------------------------------------
-  - name: "EfficientNetV2M"
-    weight_class: "EfficientNet_V2_M_Weights.DEFAULT"
-    log_paths: "efficientnetv2m/logs/*efficientnet*v2*m*.jsonl"
-    heatmap_folder: "efficientnetv2m/gradcam_EFFICIENTNETV2M_augmented_infected_predictions"
+  - name: "EfficientNetB0"
+    weight_class: "EfficientNet_B0_Weights.DEFAULT"
+    log_paths: "efficientnetb0/logs/*efficientnet*B0*.jsonl"
+    heatmap_folder: "efficientnetb0/gradcams"
 
   # --------------------------------------------------------------------------
   # 8. DenseNet121 (Dense Connectivity CNN)
@@ -72,7 +72,7 @@ models:
   - name: "DenseNet121"
     weight_class: "DenseNet121_Weights.DEFAULT"
     log_paths: "densenet121/logs/*densenet121*.jsonl"
-    heatmap_folder: "densenet121/gradcam_DenseNet121_augmented_infected_predictions"
+    heatmap_folder: "densenet121/gradcams"
 
   # --------------------------------------------------------------------------
   # 9. YOLOv8 Classification (Real-Time Anchor-Free Framework)
@@ -80,4 +80,4 @@ models:
   - name: "YOLOv8"
     weight_class: null
     log_paths: "YOLOv8/logs/*yolo*cls*.jsonl"
-    heatmap_folder: "YOLOv8/gradcam_yolov8n_cls_augmented_infected_predictions"
+    heatmap_folder: "YOLOv8/gradcams"
