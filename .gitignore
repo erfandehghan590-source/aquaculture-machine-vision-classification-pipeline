@@ -10,6 +10,7 @@ __pycache__/
 datasets/
 ground_truth/
 model_comparison_results/
+robustness_results/
 
 # Outputs / Heatmaps / Images
 **/gradcam_*/

@@ -1,0 +1,63 @@
+# ==============================================================================
+# پیکربندی ارزیابی Robustness مدل‌ها در برابر اغتشاشات
+# ==============================================================================
+
+# مسیر خروجی نتایج
+output_dir: "robustness_results"
+
+# مسیر داده‌ی تست تمیز (نسبت به ریشه‌ی پروژه)
+clean_test_dir: "datasets/SalmonScan_Split/test"
+
+# تنظیمات عمومی
+img_size: 224
+batch_size: 32
+num_workers: 2
+global_seed: 42
+
+# --------------------------------------------------------------------------
+# لیست مدل‌ها
+# --------------------------------------------------------------------------
+# name          : نام نمایشی مدل
+# model_tag     : تگ استفاده‌شده در نام فایل وزن‌ها (مثلاً resnet50)
+# weight_pattern: الگوی glob برای پیدا کردن فایل‌های وزن فولدها
+#                 (نسبت به ریشه‌ی پروژه)
+# builder       : نام تابع builder داخل فایل base-model مربوطه
+#                 (اختیاری – اگر ننویسی از registry داخلی استفاده می‌شود)
+# --------------------------------------------------------------------------
+models:
+  - name: "MobileNetV3-Large"
+    model_tag: "mobilenetv3large"
+    weight_pattern: "mobilenetv3large/*_fold*_*.pth"
+
+  - name: "ResNet50"
+    model_tag: "resnet50"
+    weight_pattern: "resnet50/*_fold*_*.pth"
+
+  - name: "ResNet18"
+    model_tag: "resnet18"
+    weight_pattern: "resnet18/*_fold*_*.pth"
+
+  - name: "ViT-B16"
+    model_tag: "vitb16"
+    weight_pattern: "ViTB16/*_fold*_*.pth"
+
+  - name: "Swin-Tiny"
+    model_tag: "swintiny"
+    weight_pattern: "swintiny/*_fold*_*.pth"
+
+  - name: "ConvNeXt-Tiny"
+    model_tag: "convnexttiny"
+    weight_pattern: "convnexttiny/*_fold*_*.pth"
+
+  - name: "EfficientNetB0"
+    model_tag: "efficientnetb0"
+    weight_pattern: "efficientnetb0/*_fold*_*.pth"
+
+  - name: "DenseNet121"
+    model_tag: "densenet121"
+    weight_pattern: "densenet121/*_fold*_*.pth"
+
+  # YOLOv8 را فعلاً کامنت گذاشتم چون ساختار وزن و builder متفاوت است
+  # - name: "YOLOv8"
+  #   model_tag: "yolov8"
+  #   weight_pattern: "YOLOv8/*_fold*_*.pth"

@@ -685,29 +685,264 @@ def plot_model_comparison(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Error Bar Accuracy Plot
-    acc_col = "test_acc" if "test_acc_mean" in stats_df.columns else "best_val_acc"
-    if f"{acc_col}_mean" in stats_df.columns:
+    models = stats_df["model"].astype(str)
+
+    # ------------------------------------------------------------------
+    # Helper: رسم bar chart ساده با (یا بدون) error bar
+    # ------------------------------------------------------------------
+    def _bar_with_optional_error(
+        ax,
+        values,
+        stds=None,
+        color="#2b5c8f",
+        ylabel="",
+        title="",
+        value_fmt="{:.1f}",
+        unit="",
+    ):
+        x = np.arange(len(models))
+        bars = ax.bar(
+            x,
+            values,
+            yerr=stds if stds is not None else None,
+            capsize=5,
+            color=color,
+            alpha=0.85,
+            edgecolor="black",
+            width=0.65,
+        )
+        ax.set_xticks(x)
+        ax.set_xticklabels(models, rotation=25, ha="right")
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_title(title, fontsize=13, pad=10)
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+        ax.set_axisbelow(True)
+
+        # برچسب روی میله‌ها
+        for i, (bar, v) in enumerate(zip(bars, values)):
+            height = bar.get_height()
+            err = stds[i] if stds is not None else 0
+            label = value_fmt.format(v)
+            if stds is not None and err > 0:
+                label += f"±{value_fmt.format(err)}"
+            label += unit
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + err + (ax.get_ylim()[1] - ax.get_ylim()[0]) * 0.02,
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+
+    # ------------------------------------------------------------------
+    # 1. Accuracy (با error bar)
+    # ------------------------------------------------------------------
+    acc_col = "test_acc" if "test_acc" in stats_df.columns else "best_val_acc"
+    mean_col = f"{acc_col}_mean"
+    std_col = f"{acc_col}_std"
+
+    if mean_col in stats_df.columns:
+        means = stats_df[mean_col] * 100
+        stds = stats_df[std_col].fillna(0.0) * 100 if std_col in stats_df.columns else None
+    else:
+        means = stats_df[acc_col] * 100
+        stds = None
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    _bar_with_optional_error(
+        ax,
+        means,
+        stds,
+        color="#2b5c8f",
+        ylabel="Accuracy (%)",
+        title="Model Performance (Mean ± Std across Seeds)" if stds is not None else "Model Performance",
+        value_fmt="{:.1f}",
+        unit="%",
+    )
+    ax.set_ylim(0, max(110, means.max() * 1.15 if len(means) else 110))
+    plt.tight_layout()
+    plt.savefig(output_dir / "comparison_accuracy_with_errorbars.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 2. Total Training Time
+    # ------------------------------------------------------------------
+    time_col = "total_train_time_sec"
+    mean_col = f"{time_col}_mean"
+    std_col = f"{time_col}_std"
+
+    if mean_col in stats_df.columns:
+        times = stats_df[mean_col] / 60  # تبدیل به دقیقه
+        time_stds = stats_df[std_col].fillna(0.0) / 60 if std_col in stats_df.columns else None
+    elif time_col in stats_df.columns:
+        times = stats_df[time_col] / 60
+        time_stds = None
+    else:
+        times = None
+
+    if times is not None:
         fig, ax = plt.subplots(figsize=(10, 5))
-        models = stats_df["model"]
-        means = stats_df[f"{acc_col}_mean"] * 100
-        stds = stats_df[f"{acc_col}_std"].fillna(0.0) * 100
-
-        bars = ax.bar(models, means, yerr=stds, capsize=5, color="#2b5c8f", alpha=0.85, edgecolor="black")
-        ax.set_ylabel(f"{acc_col.replace('_', ' ').title()} (%)", fontsize=11)
-        ax.set_title("Model Performance (Mean ± Std across Seeds)", fontsize=13)
-        ax.set_ylim(0, 110)
-        plt.xticks(rotation=25, ha="right")
-        plt.grid(axis="y", linestyle="--", alpha=0.4)
-
-        for bar, m, s in zip(bars, means, stds):
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + s + 1.5,
-                    f"{m:.1f}±{s:.1f}%", ha="center", fontsize=8)
-
+        _bar_with_optional_error(
+            ax,
+            times,
+            time_stds,
+            color="#e67e22",
+            ylabel="Total Training Time (minutes)",
+            title="Training Time Comparison",
+            value_fmt="{:.1f}",
+            unit=" min",
+        )
+        ax.set_ylim(0, times.max() * 1.25 if len(times) else 1)
         plt.tight_layout()
-        plt.savefig(output_dir / "comparison_accuracy_with_errorbars.png", dpi=300, bbox_inches="tight")
+        plt.savefig(output_dir / "comparison_training_time.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-    # 2. Radar & Bubble
+    # ------------------------------------------------------------------
+    # 3. RAM Usage (Mean & Max)
+    # ------------------------------------------------------------------
+    has_ram = "mean_ram_mb" in stats_df.columns or "mean_ram_mb_mean" in stats_df.columns
+    if has_ram:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Mean RAM
+        mean_col = "mean_ram_mb_mean" if "mean_ram_mb_mean" in stats_df.columns else "mean_ram_mb"
+        std_col = "mean_ram_mb_std"
+        ram_mean = stats_df[mean_col]
+        ram_std = stats_df[std_col].fillna(0.0) if std_col in stats_df.columns else None
+
+        _bar_with_optional_error(
+            axes[0],
+            ram_mean,
+            ram_std,
+            color="#27ae60",
+            ylabel="Mean RAM (MB)",
+            title="Mean RAM Usage",
+            value_fmt="{:.0f}",
+            unit=" MB",
+        )
+        axes[0].set_ylim(0, ram_mean.max() * 1.25)
+
+        # Max RAM
+        max_col = "max_ram_mb_mean" if "max_ram_mb_mean" in stats_df.columns else "max_ram_mb"
+        std_col = "max_ram_mb_std"
+        ram_max = stats_df[max_col]
+        ram_max_std = stats_df[std_col].fillna(0.0) if std_col in stats_df.columns else None
+
+        _bar_with_optional_error(
+            axes[1],
+            ram_max,
+            ram_max_std,
+            color="#16a085",
+            ylabel="Max RAM (MB)",
+            title="Peak RAM Usage",
+            value_fmt="{:.0f}",
+            unit=" MB",
+        )
+        axes[1].set_ylim(0, ram_max.max() * 1.25)
+
+        plt.tight_layout()
+        plt.savefig(output_dir / "comparison_ram_usage.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 4. GPU Peak Memory (Mean & Max)
+    # ------------------------------------------------------------------
+    has_gpu = "mean_gpu_peak_mb" in stats_df.columns or "mean_gpu_peak_mb_mean" in stats_df.columns
+    if has_gpu:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Mean GPU Peak
+        mean_col = "mean_gpu_peak_mb_mean" if "mean_gpu_peak_mb_mean" in stats_df.columns else "mean_gpu_peak_mb"
+        std_col = "mean_gpu_peak_mb_std"
+        gpu_mean = stats_df[mean_col]
+        gpu_std = stats_df[std_col].fillna(0.0) if std_col in stats_df.columns else None
+
+        _bar_with_optional_error(
+            axes[0],
+            gpu_mean,
+            gpu_std,
+            color="#8e44ad",
+            ylabel="Mean GPU Peak (MB)",
+            title="Mean GPU Peak Memory",
+            value_fmt="{:.0f}",
+            unit=" MB",
+        )
+        axes[0].set_ylim(0, gpu_mean.max() * 1.25)
+
+        # Max GPU Peak
+        max_col = "max_gpu_peak_mb_mean" if "max_gpu_peak_mb_mean" in stats_df.columns else "max_gpu_peak_mb"
+        std_col = "max_gpu_peak_mb_std"
+        gpu_max = stats_df[max_col]
+        gpu_max_std = stats_df[std_col].fillna(0.0) if std_col in stats_df.columns else None
+
+        _bar_with_optional_error(
+            axes[1],
+            gpu_max,
+            gpu_max_std,
+            color="#9b59b6",
+            ylabel="Max GPU Peak (MB)",
+            title="Peak GPU Memory",
+            value_fmt="{:.0f}",
+            unit=" MB",
+        )
+        axes[1].set_ylim(0, gpu_max.max() * 1.25)
+
+        plt.tight_layout()
+        plt.savefig(output_dir / "comparison_gpu_usage.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 5. Combined Resource Overview (اختیاری اما خیلی مفید)
+    # ------------------------------------------------------------------
+    if has_ram and has_gpu and times is not None:
+        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+        # Time
+        _bar_with_optional_error(
+            axes[0],
+            times,
+            time_stds,
+            color="#e67e22",
+            ylabel="Time (min)",
+            title="Training Time",
+            value_fmt="{:.1f}",
+        )
+        axes[0].set_ylim(0, times.max() * 1.25)
+
+        # Max RAM
+        max_ram_col = "max_ram_mb_mean" if "max_ram_mb_mean" in stats_df.columns else "max_ram_mb"
+        _bar_with_optional_error(
+            axes[1],
+            stats_df[max_ram_col],
+            None,
+            color="#27ae60",
+            ylabel="Max RAM (MB)",
+            title="Peak RAM",
+            value_fmt="{:.0f}",
+        )
+        axes[1].set_ylim(0, stats_df[max_ram_col].max() * 1.25)
+
+        # Max GPU
+        max_gpu_col = "max_gpu_peak_mb_mean" if "max_gpu_peak_mb_mean" in stats_df.columns else "max_gpu_peak_mb"
+        _bar_with_optional_error(
+            axes[2],
+            stats_df[max_gpu_col],
+            None,
+            color="#8e44ad",
+            ylabel="Max GPU (MB)",
+            title="Peak GPU Memory",
+            value_fmt="{:.0f}",
+        )
+        axes[2].set_ylim(0, stats_df[max_gpu_col].max() * 1.25)
+
+        fig.suptitle("Resource Usage Overview", fontsize=14, y=1.02)
+        plt.tight_layout()
+        plt.savefig(output_dir / "comparison_resources_overview.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    # Radar & Bubble (همون قبلی‌ها)
     plot_radar_comparison(stats_df, output_dir)
     plot_tradeoff_bubble(stats_df, output_dir)
+
+    print(f"✅ Plots saved to: {output_dir}")
